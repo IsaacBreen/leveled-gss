@@ -4,11 +4,12 @@ Releases publish the same version to crates.io and PyPI and attach Python artifa
 
 ## One-time repository setup
 
-1. Add the GitHub Actions secret `CARGO_REGISTRY_TOKEN` with a crates.io publishing token.
-2. Configure a PyPI trusted publisher for repository `IsaacBreen/leveled-gss`, workflow `release.yml`, environment `pypi`.
-3. Protect the `pypi` GitHub environment if release approval is desired.
+The repository release workflow accepts:
 
-PyPI supports a pending trusted publisher for the first upload of a new project.
+- `CARGO_REGISTRY_TOKEN` for crates.io; and
+- either `PYPI_API_TOKEN` or a PyPI trusted publisher for repository `IsaacBreen/leveled-gss`, workflow `release.yml`, environment `pypi`.
+
+Both repository secrets are configured. Trusted publishing remains supported: delete `PYPI_API_TOKEN` after registering the pending publisher on PyPI to switch to short-lived OIDC credentials. Protect the `pypi` GitHub environment if release approval is desired.
 
 ## Release checklist
 
