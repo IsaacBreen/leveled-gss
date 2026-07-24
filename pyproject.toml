@@ -3,15 +3,15 @@ requires = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "leveled-gss"
+name = "weighted-gss"
 dynamic = ["version"]
-description = "Persistent weighted graph-structured stacks with leveled sharing"
+description = "Persistent compressed maps from stacks to joinable weights"
 readme = "README.md"
 requires-python = ">=3.8"
 license = "MIT OR Apache-2.0"
 license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
 authors = [{ name = "Isaac Breen", email = "mail@isaacbreen.com" }]
-keywords = ["graph-structured-stack", "glr", "parsing", "persistent-data-structure"]
+keywords = ["graph-structured-stack", "weighted", "glr", "parsing", "persistent-data-structure"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
@@ -30,16 +30,16 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/IsaacBreen/leveled-gss"
-Source = "https://github.com/IsaacBreen/leveled-gss"
-Issues = "https://github.com/IsaacBreen/leveled-gss/issues"
-Changelog = "https://github.com/IsaacBreen/leveled-gss/blob/main/CHANGELOG.md"
-"Rust API" = "https://docs.rs/leveled-gss"
-"Python API" = "https://github.com/IsaacBreen/leveled-gss/blob/main/docs/python.md"
+Homepage = "https://github.com/IsaacBreen/weighted-gss"
+Source = "https://github.com/IsaacBreen/weighted-gss"
+Issues = "https://github.com/IsaacBreen/weighted-gss/issues"
+Changelog = "https://github.com/IsaacBreen/weighted-gss/blob/main/CHANGELOG.md"
+"Rust API" = "https://docs.rs/weighted-gss"
+"Python API" = "https://github.com/IsaacBreen/weighted-gss/blob/main/docs/python.md"
 
 [tool.maturin]
 features = ["python"]
 python-source = "python"
-module-name = "leveled_gss._native"
+module-name = "weighted_gss._native"
 strip = true
 exclude = [".github/**", "python/tests/**", "tests/**", "examples/**", "RELEASING.md"]

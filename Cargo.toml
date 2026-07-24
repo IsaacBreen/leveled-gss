@@ -1,16 +1,16 @@
 [package]
-name = "leveled-gss"
+name = "weighted-gss"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-description = "A persistent weighted graph-structured stack with leveled sharing"
+description = "A persistent compressed map from stacks to joinable weights"
 authors = ["Isaac Breen <mail@isaacbreen.com>"]
-homepage = "https://github.com/IsaacBreen/leveled-gss"
+homepage = "https://github.com/IsaacBreen/weighted-gss"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/IsaacBreen/leveled-gss"
-documentation = "https://docs.rs/leveled-gss"
-keywords = ["gss", "glr", "parser", "persistent", "graph"]
+repository = "https://github.com/IsaacBreen/weighted-gss"
+documentation = "https://docs.rs/weighted-gss"
+keywords = ["gss", "glr", "parser", "weighted", "persistent"]
 categories = ["algorithms", "data-structures", "parsing"]
 exclude = [".github/**", "python/**", "pyproject.toml", "RELEASING.md"]
 

@@ -1,10 +1,10 @@
-use leveled_gss::{LeveledGSS, Merge};
+use weighted_gss::{Weight, WeightedGss};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Labels(Vec<&'static str>);
 
-impl Merge for Labels {
-    fn merge(&self, other: &Self) -> Self {
+impl Weight for Labels {
+    fn join(&self, other: &Self) -> Self {
         let mut labels = self.0.clone();
         for label in &other.0 {
             if !labels.contains(label) {
@@ -16,9 +16,9 @@ impl Merge for Labels {
 }
 
 #[test]
-fn merge_push_and_pop_preserve_paths_and_accumulators() {
-    let left = LeveledGSS::from_single_stack(vec![0_u8, 1, 2], Labels(vec!["left"]));
-    let right = LeveledGSS::from_single_stack(vec![0_u8, 1, 3], Labels(vec!["right"]));
+fn merge_push_and_pop_preserve_paths_and_weights() {
+    let left = WeightedGss::from_single_stack(vec![0_u8, 1, 2], Labels(vec!["left"]));
+    let right = WeightedGss::from_single_stack(vec![0_u8, 1, 3], Labels(vec!["right"]));
 
     let merged = left.merge(&right);
     assert_eq!(merged.path_count_at_most(8), 2);
@@ -39,8 +39,8 @@ fn merge_push_and_pop_preserve_paths_and_accumulators() {
 }
 
 #[test]
-fn duplicate_stack_accumulators_merge() {
-    let gss = LeveledGSS::from_stacks(&[
+fn duplicate_stack_weights_merge() {
+    let gss = WeightedGss::from_stacks(&[
         (vec![1_u8, 2], Labels(vec!["a"])),
         (vec![1_u8, 2], Labels(vec!["b"])),
     ]);

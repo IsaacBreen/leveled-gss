@@ -172,7 +172,7 @@ jobs:
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
     environment:
       name: pypi
-      url: https://pypi.org/p/leveled-gss
+      url: https://pypi.org/p/weighted-gss
     permissions:
       id-token: write
     steps:

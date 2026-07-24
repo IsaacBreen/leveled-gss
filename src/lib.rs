@@ -1,17 +1,16 @@
 //! A persistent, weighted graph-structured stack with leveled sharing.
 //!
-//! `leveled-gss` represents a set of stacks as one persistent graph. Paths can
-//! carry an accumulator, and [`Merge`] defines how accumulators combine when
-//! equivalent paths meet. The implementation is extracted from GLRMask's
+//! `weighted-gss` represents a set of stacks as one persistent graph. It denotes a finite map from complete stacks to weights, and [`Weight`]
+//! defines how weights join when stack operations make two keys coincide. The implementation is extracted from GLRMask's
 //! production parser data structure.
 //!
 //! # Basic use
 //!
 //! ```
-//! use leveled_gss::LeveledGSS;
+//! use weighted_gss::WeightedGss;
 //!
-//! let left = LeveledGSS::from_single_stack(vec![0_u32, 10, 20], ());
-//! let right = LeveledGSS::from_single_stack(vec![0_u32, 10, 30], ());
+//! let left = WeightedGss::from_single_stack(vec![0_u32, 10, 20], ());
+//! let right = WeightedGss::from_single_stack(vec![0_u32, 10, 30], ());
 //! let merged = left.merge(&right).push(40);
 //!
 //! let mut stacks = merged.to_stacks(8).unwrap();
@@ -25,17 +24,17 @@
 //! );
 //! ```
 //!
-//! [`LeveledGSS::to_stacks`] is intended for diagnostics and tests. Production
+//! [`WeightedGss::to_stacks`] is intended for diagnostics and tests. Production
 //! algorithms should usually operate on the shared representation directly.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 #![allow(clippy::large_enum_variant, clippy::type_complexity)]
 
-mod leveled_gss;
 mod stack_vecs;
+mod weighted_gss;
 
 #[cfg(feature = "python")]
 mod python;
 
-pub use crate::leveled_gss::{LeveledGSS, LeveledGSSSummary, Merge, VirtualStack};
+pub use crate::weighted_gss::{VirtualStack, Weight, WeightedGss, WeightedGssSummary};

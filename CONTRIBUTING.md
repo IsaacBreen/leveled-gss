@@ -20,15 +20,15 @@ cargo clippy --features python --all-targets -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 cargo publish --dry-run
 maturin build --release --out dist
-python -m pip install --force-reinstall dist/leveled_gss-*.whl
+python -m pip install --force-reinstall dist/weighted_gss-*.whl
 python -m unittest discover -s python/tests -v
 ```
 
-Public Rust API additions must include rustdoc because the crate denies `missing_docs`. Python API additions must update runtime docstrings, `python/leveled_gss/__init__.pyi`, and Python tests.
+Public Rust API additions must include rustdoc because the crate denies `missing_docs`. Python API additions must update runtime docstrings, `python/weighted_gss/__init__.pyi`, and Python tests.
 
 ## Design constraints
 
-- Preserve path-to-accumulator correlation.
-- Treat `Merge` as an associative, commutative, idempotent join.
+- Preserve stack-to-weight correlation.
+- Treat `Weight::join` as an associative, commutative, idempotent join.
 - Keep `to_stacks` bounded; do not introduce unbounded materialization into hot paths.
 - Run semantic tests against both `STACKVEC` backends.

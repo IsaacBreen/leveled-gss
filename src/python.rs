@@ -1,4 +1,4 @@
-use crate::{LeveledGSS as CoreLeveledGSS, LeveledGSSSummary as CoreSummary, Merge};
+use crate::{Weight, WeightedGss as CoreWeightedGss, WeightedGssSummary as CoreSummary};
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::{PyOverflowError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -36,40 +36,40 @@ impl Hash for PyKey {
     }
 }
 
-struct PyAccumulator(Py<PyAny>);
+struct PyWeight(Py<PyAny>);
 
-impl Clone for PyAccumulator {
+impl Clone for PyWeight {
     fn clone(&self) -> Self {
         Python::attach(|py| Self(self.0.clone_ref(py)))
     }
 }
 
-impl PartialEq for PyAccumulator {
+impl PartialEq for PyWeight {
     fn eq(&self, other: &Self) -> bool {
         objects_equal(&self.0, &other.0)
     }
 }
 
-impl Eq for PyAccumulator {}
+impl Eq for PyWeight {}
 
-impl Hash for PyAccumulator {
+impl Hash for PyWeight {
     fn hash<H: Hasher>(&self, state: &mut H) {
         Python::attach(|py| self.0.bind(py).hash().unwrap_or(0).hash(state));
     }
 }
 
-impl Merge for PyAccumulator {
-    fn merge(&self, other: &Self) -> Self {
+impl Weight for PyWeight {
+    fn join(&self, other: &Self) -> Self {
         Python::attach(|py| {
             if self.0.bind(py).is_none() && other.0.bind(py).is_none() {
                 return Self(py.None());
             }
             let merged = self
                 .0
-                .call_method1(py, "merge", (other.0.clone_ref(py),))
+                .call_method1(py, "join", (other.0.clone_ref(py),))
                 .unwrap_or_else(|error| {
                     error.restore(py);
-                    panic!("Python accumulator merge() raised an exception")
+                    panic!("Python weight join() raised an exception")
                 });
             Self(merged)
         })
@@ -90,16 +90,16 @@ fn validate_hashable(py: Python<'_>, object: &Py<PyAny>, kind: &str) -> PyResult
 
 /// Structural statistics for a shared graph-structured stack.
 #[pyclass(
-    name = "LeveledGSSSummary",
-    module = "leveled_gss._native",
+    name = "WeightedGSSSummary",
+    module = "weighted_gss._native",
     skip_from_py_object
 )]
 #[derive(Clone)]
-struct PyLeveledGSSSummary {
+struct PyWeightedGSSSummary {
     /// Number of distinct values at the top frontier.
     #[pyo3(get)]
     top_values_count: usize,
-    /// Number of accumulator-carrying branch nodes.
+    /// Number of weight-carrying branch nodes.
     #[pyo3(get)]
     upperbranch_nodes: usize,
     /// Number of interface nodes.
@@ -120,15 +120,15 @@ struct PyLeveledGSSSummary {
     /// Total number of graph edges.
     #[pyo3(get)]
     total_edges: usize,
-    /// Number of stored accumulator instances.
+    /// Number of stored weight instances.
     #[pyo3(get)]
-    accumulator_instances: usize,
+    weight_instances: usize,
     /// Maximum represented stack depth.
     #[pyo3(get)]
     max_depth: u32,
 }
 
-impl From<CoreSummary> for PyLeveledGSSSummary {
+impl From<CoreSummary> for PyWeightedGSSSummary {
     fn from(summary: CoreSummary) -> Self {
         Self {
             top_values_count: summary.top_values_count,
@@ -139,38 +139,37 @@ impl From<CoreSummary> for PyLeveledGSSSummary {
             lower_segment_nodes: summary.lower_segment_nodes,
             total_unique_nodes: summary.total_unique_nodes,
             total_edges: summary.total_edges,
-            accumulator_instances: summary.accumulator_instances,
+            weight_instances: summary.weight_instances,
             max_depth: summary.max_depth,
         }
     }
 }
 
 #[pymethods]
-impl PyLeveledGSSSummary {
+impl PyWeightedGSSSummary {
     fn __repr__(&self) -> String {
         format!(
-            "LeveledGSSSummary(top_values={}, nodes={}, edges={}, max_depth={})",
+            "WeightedGSSSummary(top_values={}, nodes={}, edges={}, max_depth={})",
             self.top_values_count, self.total_unique_nodes, self.total_edges, self.max_depth
         )
     }
 }
 
-/// A persistent set of stack paths with shared structure and optional accumulators.
+/// A persistent set of stack paths with shared structure and optional weights.
 ///
-/// Stack values and accumulators must be immutable and hashable. Weighted
-/// accumulators must provide a ``merge(other)`` method implementing an
+/// Stack values and weights must be immutable and hashable. Weights must provide a ``join(other)`` method implementing an
 /// associative, commutative, idempotent join.
 #[pyclass(
-    name = "LeveledGSS",
-    module = "leveled_gss._native",
+    name = "WeightedGSS",
+    module = "weighted_gss._native",
     unsendable,
     skip_from_py_object
 )]
-struct PyLeveledGSS {
-    inner: CoreLeveledGSS<PyKey, PyAccumulator>,
+struct PyWeightedGSS {
+    inner: CoreWeightedGss<PyKey, PyWeight>,
 }
 
-impl Clone for PyLeveledGSS {
+impl Clone for PyWeightedGSS {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -178,7 +177,7 @@ impl Clone for PyLeveledGSS {
     }
 }
 
-impl PyLeveledGSS {
+impl PyWeightedGSS {
     fn stacks_to_python(&self, py: Python<'_>, max_stacks: usize) -> PyResult<Py<PyAny>> {
         let stacks = self.inner.to_stacks(max_stacks).ok_or_else(|| {
             PyOverflowError::new_err(format!(
@@ -186,9 +185,9 @@ impl PyLeveledGSS {
             ))
         })?;
         let result = PyList::empty(py);
-        for (values, accumulator) in stacks {
+        for (values, weight) in stacks {
             let py_values = PyList::new(py, values.into_iter().map(|value| value.0))?;
-            let tuple = PyTuple::new(py, [py_values.into_any().unbind(), accumulator.0])?;
+            let tuple = PyTuple::new(py, [py_values.into_any().unbind(), weight.0])?;
             result.append(tuple)?;
         }
         Ok(result.into_any().unbind())
@@ -196,12 +195,12 @@ impl PyLeveledGSS {
 }
 
 #[pymethods]
-impl PyLeveledGSS {
+impl PyWeightedGSS {
     /// Construct an empty GSS.
     #[new]
     fn new() -> Self {
         Self {
-            inner: CoreLeveledGSS::empty(),
+            inner: CoreWeightedGss::empty(),
         }
     }
 
@@ -211,10 +210,10 @@ impl PyLeveledGSS {
         Self::new()
     }
 
-    /// Construct from ``(stack, accumulator)`` pairs.
+    /// Construct from ``(stack, weight)`` pairs.
     ///
     /// Stacks are ordered bottom-to-top. Duplicate stacks are joined through
-    /// the accumulator's ``merge`` method.
+    /// the weight's ``join`` method.
     #[classmethod]
     fn from_stacks(
         _cls: &Bound<'_, PyType>,
@@ -223,22 +222,19 @@ impl PyLeveledGSS {
     ) -> PyResult<Self> {
         let mut converted = Vec::new();
         for item in stacks.try_iter()? {
-            let (values, accumulator): (Vec<Py<PyAny>>, Py<PyAny>) = item?.extract()?;
+            let (values, weight): (Vec<Py<PyAny>>, Py<PyAny>) = item?.extract()?;
             for value in &values {
                 validate_hashable(py, value, "stack values")?;
             }
-            validate_hashable(py, &accumulator, "accumulators")?;
-            converted.push((
-                values.into_iter().map(PyKey).collect(),
-                PyAccumulator(accumulator),
-            ));
+            validate_hashable(py, &weight, "weights")?;
+            converted.push((values.into_iter().map(PyKey).collect(), PyWeight(weight)));
         }
         Ok(Self {
-            inner: CoreLeveledGSS::from_stacks(&converted),
+            inner: CoreWeightedGss::from_stacks(&converted),
         })
     }
 
-    /// Construct from explicit stacks using ``None`` as the accumulator.
+    /// Construct from explicit stacks using ``None`` as the weight.
     #[classmethod]
     fn from_unweighted(
         _cls: &Bound<'_, PyType>,
@@ -254,37 +250,37 @@ impl PyLeveledGSS {
             }
             converted.push((
                 values.into_iter().map(PyKey).collect(),
-                PyAccumulator(none.clone_ref(py)),
+                PyWeight(none.clone_ref(py)),
             ));
         }
         Ok(Self {
-            inner: CoreLeveledGSS::from_stacks(&converted),
+            inner: CoreWeightedGss::from_stacks(&converted),
         })
     }
 
     /// Construct a GSS containing one bottom-to-top stack.
     #[classmethod]
-    #[pyo3(signature = (stack, accumulator = None))]
+    #[pyo3(signature = (stack, weight = None))]
     fn from_single_stack(
         _cls: &Bound<'_, PyType>,
         py: Python<'_>,
         stack: Vec<Py<PyAny>>,
-        accumulator: Option<Py<PyAny>>,
+        weight: Option<Py<PyAny>>,
     ) -> PyResult<Self> {
         for value in &stack {
             validate_hashable(py, value, "stack values")?;
         }
-        let accumulator = accumulator.unwrap_or_else(|| py.None());
-        validate_hashable(py, &accumulator, "accumulators")?;
+        let weight = weight.unwrap_or_else(|| py.None());
+        validate_hashable(py, &weight, "weights")?;
         Ok(Self {
-            inner: CoreLeveledGSS::from_single_stack(
+            inner: CoreWeightedGss::from_single_stack(
                 stack.into_iter().map(PyKey).collect(),
-                PyAccumulator(accumulator),
+                PyWeight(weight),
             ),
         })
     }
 
-    /// Materialize graph paths as ``(stack, accumulator)`` pairs.
+    /// Materialize graph paths as ``(stack, weight)`` pairs.
     ///
     /// Raises ``OverflowError`` rather than silently truncating when the
     /// structural path count exceeds ``max_stacks``.
@@ -345,7 +341,7 @@ impl PyLeveledGSS {
             items.push(gss.inner.clone());
         }
         Ok(Self {
-            inner: CoreLeveledGSS::merge_many(items),
+            inner: CoreWeightedGss::merge_many(items),
         })
     }
 
@@ -365,9 +361,9 @@ impl PyLeveledGSS {
         Ok(PySet::new(py, &values)?.into_any().unbind())
     }
 
-    /// Join all distinct stored accumulators, or return ``None`` when empty.
-    fn reduce_acc(&self) -> Option<Py<PyAny>> {
-        self.inner.reduce_acc().map(|accumulator| accumulator.0)
+    /// Join all distinct stored weights, or return ``None`` when empty.
+    fn join_weights(&self) -> Option<Py<PyAny>> {
+        self.inner.join_weights().map(|weight| weight.0)
     }
 
     /// Return whether there are no active paths.
@@ -386,7 +382,7 @@ impl PyLeveledGSS {
     }
 
     /// Return structural graph statistics without materializing paths.
-    fn summary(&self) -> PyLeveledGSSSummary {
+    fn summary(&self) -> PyWeightedGSSSummary {
         self.inner.summary().into()
     }
 
@@ -398,10 +394,10 @@ impl PyLeveledGSS {
         let summary = self.inner.summary();
         if self.inner.path_count_at_most(17) <= 16 {
             let stacks = self.stacks_to_python(py, 16)?;
-            Ok(format!("LeveledGSS({})", stacks.bind(py).repr()?))
+            Ok(format!("WeightedGSS({})", stacks.bind(py).repr()?))
         } else {
             Ok(format!(
-                "LeveledGSS(paths>16, nodes={}, max_depth={})",
+                "WeightedGSS(paths>16, nodes={}, max_depth={})",
                 summary.total_unique_nodes, summary.max_depth
             ))
         }
@@ -410,8 +406,8 @@ impl PyLeveledGSS {
 
 #[pymodule]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_class::<PyLeveledGSS>()?;
-    module.add_class::<PyLeveledGSSSummary>()?;
+    module.add_class::<PyWeightedGSS>()?;
+    module.add_class::<PyWeightedGSSSummary>()?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

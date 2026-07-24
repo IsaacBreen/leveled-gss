@@ -11,15 +11,15 @@ use std::sync::{Arc, OnceLock};
 ///   normal builds: `vec` (default), `arc`
 type SV<T> = DynStackVec<T>;
 
-/// Combines path accumulators when equivalent stack paths meet.
+/// Combines path weights when equivalent stack paths meet.
 ///
 /// Implementations should behave like a join operation: associative,
 /// commutative, and idempotent. The GSS may preserve structurally distinct graph
 /// paths that denote the same concrete stack, so non-idempotent operations such
-/// as addition are not a valid accumulator merge.
-pub trait Merge: Clone {
-    /// Return the join of two accumulators.
-    fn merge(&self, other: &Self) -> Self;
+/// as addition are not a valid weight merge.
+pub trait Weight: Clone {
+    /// Return the join of two weights.
+    fn join(&self, other: &Self) -> Self;
 
     /// Return whether `self` already contains all information in `other`.
     fn subsumes(&self, _other: &Self) -> bool {
@@ -27,8 +27,8 @@ pub trait Merge: Clone {
     }
 }
 
-impl Merge for () {
-    fn merge(&self, _other: &Self) -> Self {}
+impl Weight for () {
+    fn join(&self, _other: &Self) -> Self {}
 
     fn subsumes(&self, _other: &Self) -> bool {
         true
@@ -632,25 +632,25 @@ impl<T: Clone + Eq + Hash> Lower<T> {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-struct Interface<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> {
+struct Interface<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash> {
     inner: Arc<Lower<T>>,
     acc: A,
 }
 
 #[derive(Clone, PartialEq, Eq)]
-struct UpperBranch<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> {
+struct UpperBranch<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash> {
     children: Children<T, Upper<T, A>>,
     empty: Option<A>,
     max_depth: u32,
 }
 
 #[derive(Clone, PartialEq, Eq)]
-enum Upper<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> {
+enum Upper<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash> {
     Branch(Arc<UpperBranch<T, A>>),
     Interface(Arc<Interface<T, A>>),
 }
 
-impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> Upper<T, A> {
+impl<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash> Upper<T, A> {
     fn max_depth(&self) -> u32 {
         match self {
             Upper::Branch(branch) => branch.max_depth,
@@ -713,17 +713,17 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> Upper<T, A> {
     }
 }
 
-/// Structural statistics for a [`LeveledGSS`].
+/// Structural statistics for a [`WeightedGss`].
 ///
 /// The counts describe the shared graph, not a fully materialized set of
 /// concrete stacks.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct LeveledGSSSummary {
+pub struct WeightedGssSummary {
     /// Number of distinct values visible at the top frontier.
     pub top_values_count: usize,
-    /// Number of accumulator-carrying branch nodes.
+    /// Number of weight-carrying branch nodes.
     pub upperbranch_nodes: usize,
-    /// Number of interface nodes between accumulator and shared-stack layers.
+    /// Number of interface nodes between weight and shared-stack layers.
     pub interface_nodes: usize,
     /// Total number of nodes in the lower shared-stack layer.
     pub lower_nodes: usize,
@@ -735,17 +735,17 @@ pub struct LeveledGSSSummary {
     pub total_unique_nodes: usize,
     /// Total number of graph edges.
     pub total_edges: usize,
-    /// Number of accumulator storage locations in the upper layer.
-    pub accumulator_instances: usize,
+    /// Number of weight storage locations in the upper layer.
+    pub weight_instances: usize,
     /// Maximum represented stack depth.
     pub max_depth: u32,
 }
 
-fn merge_optional_acc<A: Merge + Clone>(a: &Option<A>, b: &Option<A>) -> Option<A> {
+fn merge_optional_acc<A: Weight + Clone>(a: &Option<A>, b: &Option<A>) -> Option<A> {
     match (a, b) {
         (None, Some(bv)) => Some(bv.clone()),
         (Some(av), None) => Some(av.clone()),
-        (Some(av), Some(bv)) => Some(av.merge(bv)),
+        (Some(av), Some(bv)) => Some(av.join(bv)),
         (None, None) => None,
     }
 }
@@ -929,7 +929,7 @@ fn new_segment<T: Clone + Eq + Hash>(values: SV<T>, next: Arc<Lower<T>>) -> Arc<
 fn new_interface<T, A>(inner: Arc<Lower<T>>, acc: A) -> Arc<Upper<T, A>>
 where
     T: Clone + Eq + Hash,
-    A: Merge + Clone + Eq + Hash,
+    A: Weight + Clone + Eq + Hash,
 {
     Arc::new(Upper::Interface(Arc::new(Interface { inner, acc })))
 }
@@ -937,7 +937,7 @@ where
 fn new_branch<T, A>(children: Children<T, Upper<T, A>>, empty: Option<A>) -> Arc<Upper<T, A>>
 where
     T: Clone + Eq + Hash,
-    A: Merge + Clone + Eq + Hash,
+    A: Weight + Clone + Eq + Hash,
 {
     let max_depth = max_depth_from_children(&children, |n: &Arc<Upper<T, A>>| n.max_depth());
     Arc::new(Upper::Branch(Arc::new(UpperBranch {
@@ -950,7 +950,7 @@ where
 fn empty_upper_inner<T, A>() -> Arc<Upper<T, A>>
 where
     T: Clone + Eq + Hash,
-    A: Merge + Clone + Eq + Hash,
+    A: Weight + Clone + Eq + Hash,
 {
     new_branch(CompactMap::new(), None)
 }
@@ -1046,7 +1046,7 @@ fn truncate_upper<T, A>(
 ) -> Option<Arc<Upper<T, A>>>
 where
     T: Clone + Eq + Hash,
-    A: Merge + Clone + Eq + Hash,
+    A: Weight + Clone + Eq + Hash,
 {
     let ptr = Arc::as_ptr(node) as usize;
     if let Some(cached) = memo_upper.get(&ptr) {
@@ -1054,10 +1054,10 @@ where
     }
 
     if current_depth == max_len {
-        let sub_gss = LeveledGSS {
+        let sub_gss = WeightedGss {
             inner: node.clone(),
         };
-        let res = if let Some(acc) = sub_gss.reduce_acc() {
+        let res = if let Some(acc) = sub_gss.join_weights() {
             let terminal_lower = new_lower(CompactMap::new(), true);
             Some(new_interface(terminal_lower, acc))
         } else {
@@ -1185,7 +1185,7 @@ fn merge_lower<T: Clone + Eq + Hash>(l1: &Arc<Lower<T>>, l2: &Arc<Lower<T>>) -> 
 fn interface_to_upperbranch<T, A>(it: &Arc<Interface<T, A>>) -> Arc<UpperBranch<T, A>>
 where
     T: Clone + Eq + Hash,
-    A: Merge + Clone + Eq + Hash,
+    A: Weight + Clone + Eq + Hash,
 {
     let mut children: Children<T, Upper<T, A>> = CompactMap::new();
     match &*it.inner {
@@ -1287,7 +1287,7 @@ fn merge_upperbranches<T, A>(
 ) -> Arc<Upper<T, A>>
 where
     T: Clone + Eq + Hash,
-    A: Merge + Clone + Eq + Hash,
+    A: Weight + Clone + Eq + Hash,
 {
     if Arc::ptr_eq(a, b) {
         return Arc::new(Upper::Branch(a.clone()));
@@ -1305,7 +1305,7 @@ where
 fn merge_interfaces<T, A>(a: &Arc<Interface<T, A>>, b: &Arc<Interface<T, A>>) -> Arc<Upper<T, A>>
 where
     T: Clone + Eq + Hash,
-    A: Merge + Clone + Eq + Hash,
+    A: Weight + Clone + Eq + Hash,
 {
     let acc_equal = a.acc == b.acc;
     let inner_ptr_eq = Arc::ptr_eq(&a.inner, &b.inner);
@@ -1316,11 +1316,11 @@ where
         if a.acc.subsumes(&b.acc) {
             return Arc::new(Upper::Interface(a.clone()));
         }
-        return new_interface(a.inner.clone(), a.acc.merge(&b.acc));
+        return new_interface(a.inner.clone(), a.acc.join(&b.acc));
     }
     if acc_equal {
         let merged_lower = merge_lower(&a.inner, &b.inner);
-        let new_acc = a.acc.merge(&b.acc);
+        let new_acc = a.acc.join(&b.acc);
         new_interface(merged_lower, new_acc)
     } else {
         let (shared_prefix, left_rest, right_rest) =
@@ -1353,7 +1353,7 @@ where
 fn merge_upper<T, A>(u1: &Arc<Upper<T, A>>, u2: &Arc<Upper<T, A>>) -> Arc<Upper<T, A>>
 where
     T: Clone + Eq + Hash,
-    A: Merge + Clone + Eq + Hash,
+    A: Weight + Clone + Eq + Hash,
 {
     if Arc::ptr_eq(u1, u2) {
         return u1.clone();
@@ -1371,7 +1371,7 @@ where
 fn try_promote<T, A>(node: &Arc<Upper<T, A>>) -> Arc<Upper<T, A>>
 where
     T: Clone + Eq + Hash,
-    A: Merge + Clone + Eq + Hash,
+    A: Weight + Clone + Eq + Hash,
 {
     if let Upper::Branch(b) = &**node {
         // Check all children are Interface (early exit without allocation).
@@ -1391,7 +1391,7 @@ where
             return node.clone();
         }
 
-        // All children are Interface. Collect accumulators (re-iterate).
+        // All children are Interface. Collect weights (re-iterate).
         let mut accs: HashSet<A> = HashSet::new();
         if let Some(empty) = &b.empty {
             accs.insert(empty.clone());
@@ -1427,12 +1427,12 @@ where
     node.clone()
 }
 
-fn empty_upper<T, A>() -> LeveledGSS<T, A>
+fn empty_upper<T, A>() -> WeightedGss<T, A>
 where
     T: Clone + Eq + Hash,
-    A: Merge + Clone + Eq + Hash,
+    A: Weight + Clone + Eq + Hash,
 {
-    LeveledGSS {
+    WeightedGss {
         inner: empty_upper_inner(),
     }
 }
@@ -1446,13 +1446,13 @@ struct SemanticTrieNode<T> {
 }
 
 #[cfg(test)]
-enum SemanticPendingNode<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> {
+enum SemanticPendingNode<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash> {
     Lower(Arc<Lower<T>>),
     Upper(Arc<Upper<T, A>>),
 }
 
 #[cfg(test)]
-impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> SemanticPendingNode<T, A> {
+impl<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash> SemanticPendingNode<T, A> {
     fn sort_key(&self) -> (u32, u8) {
         match self {
             Self::Lower(node) => (node.max_depth(), 0),
@@ -1465,11 +1465,12 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> SemanticPendingNode<T, 
 /// Canonicalizes the finite stack language represented by one or more GSSes.
 ///
 /// Keys are exact within this interner: Segment boundaries, one-child General
-/// nodes, depth-slot layout, accumulator values, and DAG sharing do not affect
+/// nodes, depth-slot layout, weight values, and DAG sharing do not affect
 /// the result. The canonical representation is a deterministic trie whose
 /// nodes are interned and shared. Work follows reachable GSS/trie nodes rather
 /// than enumerating concrete stack paths.
-pub(crate) struct GssSemanticKeyInterner<T: Clone + Eq + Hash + Ord, A: Merge + Clone + Eq + Hash> {
+pub(crate) struct GssSemanticKeyInterner<T: Clone + Eq + Hash + Ord, A: Weight + Clone + Eq + Hash>
+{
     nodes: Vec<SemanticTrieNode<T>>,
     interned: FxHashMap<SemanticTrieNode<T>, u32>,
     lower_memo: FxHashMap<usize, (Arc<Lower<T>>, u32)>,
@@ -1478,7 +1479,7 @@ pub(crate) struct GssSemanticKeyInterner<T: Clone + Eq + Hash + Ord, A: Merge + 
 }
 
 #[cfg(test)]
-impl<T: Clone + Eq + Hash + Ord, A: Merge + Clone + Eq + Hash> GssSemanticKeyInterner<T, A> {
+impl<T: Clone + Eq + Hash + Ord, A: Weight + Clone + Eq + Hash> GssSemanticKeyInterner<T, A> {
     pub(crate) fn new() -> Self {
         let empty_language = SemanticTrieNode {
             empty: false,
@@ -1646,7 +1647,7 @@ impl<T: Clone + Eq + Hash + Ord, A: Merge + Clone + Eq + Hash> GssSemanticKeyInt
             .expect("semantic trie root union was not constructed")
     }
 
-    pub(crate) fn key(&mut self, gss: &LeveledGSS<T, A>) -> u32 {
+    pub(crate) fn key(&mut self, gss: &WeightedGss<T, A>) -> u32 {
         if let Some(id) = self.upper_id(&gss.inner) {
             return id;
         }
@@ -1797,13 +1798,13 @@ impl<T: Clone + Eq + Hash + Ord, A: Merge + Clone + Eq + Hash> GssSemanticKeyInt
     }
 }
 
-/// A persistent set of stack paths with shared structure and path accumulators.
+/// A persistent set of stack paths with shared structure and path weights.
 ///
-/// `T` is the stack value type and `A` is the accumulator attached to paths.
+/// `T` is the stack value type and `A` is the weight attached to paths.
 /// Operations return new values and retain sharing with their inputs where
 /// possible.
 #[derive(Clone)]
-pub struct LeveledGSS<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> {
+pub struct WeightedGss<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash> {
     inner: Arc<Upper<T, A>>,
 }
 
@@ -1829,7 +1830,7 @@ pub struct LeveledGSS<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> {
 /// This is a common pattern during deterministic reduce chains:
 ///   pop(n) → push(goto) → pop(m) → push(goto2) → ...
 #[derive(Clone)]
-pub struct VirtualStack<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> {
+pub struct VirtualStack<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash> {
     values: SV<T>,
     next: Arc<Lower<T>>,
     acc: A,
@@ -1855,7 +1856,7 @@ fn push_mode() -> PushMode {
     })
 }
 
-impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> VirtualStack<T, A> {
+impl<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash> VirtualStack<T, A> {
     /// The current top-of-stack value, or None if the stack is empty.
     #[inline]
     pub fn top(&self) -> Option<&T> {
@@ -2038,14 +2039,14 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> VirtualStack<T, A> {
     }
 
     /// Materialize the virtual stack back into a GSS.
-    pub fn into_gss(mut self) -> LeveledGSS<T, A> {
+    pub fn into_gss(mut self) -> WeightedGss<T, A> {
         self.flush_pending();
         if self.values.is_empty() {
-            return LeveledGSS {
+            return WeightedGss {
                 inner: new_interface(self.next, self.acc),
             };
         }
-        LeveledGSS {
+        WeightedGss {
             inner: new_interface(new_segment(self.values, self.next), self.acc),
         }
     }
@@ -2054,7 +2055,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> VirtualStack<T, A> {
     ///
     /// If the pop crosses the virtualized linear prefix, the remaining work is
     /// completed using the branch-aware GSS representation.
-    pub fn into_gss_after_popping(mut self, n: usize) -> LeveledGSS<T, A> {
+    pub fn into_gss_after_popping(mut self, n: usize) -> WeightedGss<T, A> {
         self.flush_pending();
         let remaining = self.pop(n);
         let gss = self.into_gss();
@@ -2073,7 +2074,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> VirtualStack<T, A> {
         mut self,
         n: usize,
         pushes: I,
-    ) -> Option<LeveledGSS<T, A>>
+    ) -> Option<WeightedGss<T, A>>
     where
         I: IntoIterator<Item = &'a [T]>,
         T: 'a,
@@ -2110,12 +2111,12 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> VirtualStack<T, A> {
         }
 
         if children.is_empty() {
-            return Some(LeveledGSS {
+            return Some(WeightedGss {
                 inner: new_interface(base, self.acc),
             });
         }
 
-        Some(LeveledGSS {
+        Some(WeightedGss {
             inner: new_interface(new_lower(children, false), self.acc),
         })
     }
@@ -2128,7 +2129,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> VirtualStack<T, A> {
         mut self,
         n: usize,
         targets: I,
-    ) -> Option<LeveledGSS<T, A>>
+    ) -> Option<WeightedGss<T, A>>
     where
         I: IntoIterator<Item = &'a T>,
         T: 'a,
@@ -2155,37 +2156,37 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> VirtualStack<T, A> {
         }
 
         if entries.is_empty() {
-            return Some(LeveledGSS {
+            return Some(WeightedGss {
                 inner: new_interface(base, self.acc),
             });
         }
 
-        Some(LeveledGSS {
+        Some(WeightedGss {
             inner: new_interface(new_lower(CompactMap::Inline(entries), false), self.acc),
         })
     }
 }
 
-impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> PartialEq for LeveledGSS<T, A> {
+impl<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash> PartialEq for WeightedGss<T, A> {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner) || *self.inner == *other.inner
     }
 }
 
-impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> Eq for LeveledGSS<T, A> {}
+impl<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash> Eq for WeightedGss<T, A> {}
 
-impl<T: Clone + Eq + Hash + std::fmt::Debug, A: Merge + Clone + Eq + Hash + std::fmt::Debug>
-    std::fmt::Debug for LeveledGSS<T, A>
+impl<T: Clone + Eq + Hash + std::fmt::Debug, A: Weight + Clone + Eq + Hash + std::fmt::Debug>
+    std::fmt::Debug for WeightedGss<T, A>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LeveledGSS")
+        f.debug_struct("WeightedGss")
             .field("top_values", &self.peek_values().len())
             .field("max_depth", &self.max_depth())
             .finish_non_exhaustive()
     }
 }
 
-impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
+impl<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash> WeightedGss<T, A> {
     /// Return whether two GSS values share the exact same root allocation.
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
@@ -2204,26 +2205,26 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         empty_upper()
     }
 
-    /// Construct a GSS from explicit bottom-to-top stacks and accumulators.
+    /// Construct a GSS from explicit bottom-to-top stacks and weights.
     ///
-    /// Duplicate concrete stacks are combined with [`Merge::merge`].
+    /// Duplicate concrete stacks are combined with [`Weight::join`].
     pub fn from_stacks(stacks: &[(Vec<T>, A)]) -> Self {
         let mut canon: StdHashMap<Vec<T>, A> = StdHashMap::new();
         for (vals, acc) in stacks {
             if let Some(existing) = canon.get_mut(vals) {
-                let merged = existing.merge(acc);
+                let merged = existing.join(acc);
                 *existing = merged;
             } else {
                 canon.insert(vals.clone(), acc.clone());
             }
         }
 
-        struct Entry<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> {
+        struct Entry<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash> {
             end: Option<A>,
             sub: StdHashMap<T, Entry<T, A>>,
         }
 
-        impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> Default for Entry<T, A> {
+        impl<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash> Default for Entry<T, A> {
             fn default() -> Self {
                 Self {
                     end: None,
@@ -2239,7 +2240,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
             if vals.is_empty() {
                 empty_acc = match empty_acc.take() {
                     None => Some(acc),
-                    Some(prev) => Some(prev.merge(&acc)),
+                    Some(prev) => Some(prev.join(&acc)),
                 };
                 continue;
             }
@@ -2266,7 +2267,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
             node
         }
 
-        fn build_lower<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash>(
+        fn build_lower<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash>(
             d: &StdHashMap<T, Entry<T, A>>,
             pool: &mut Vec<Arc<Lower<T>>>,
         ) -> Arc<Lower<T>> {
@@ -2286,7 +2287,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
             intern_lower(new_lower(l_children, false), pool)
         }
 
-        fn build_upper<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash>(
+        fn build_upper<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash>(
             d: &StdHashMap<T, Entry<T, A>>,
             root_empty: Option<A>,
         ) -> Arc<Upper<T, A>> {
@@ -2345,20 +2346,20 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
             new_branch(children, root_empty)
         }
 
-        LeveledGSS {
+        WeightedGss {
             inner: build_upper(&trie, empty_acc),
         }
     }
 
     /// Construct a GSS containing one bottom-to-top stack.
-    pub fn from_single_stack(values: Vec<T>, acc: A) -> Self {
+    pub fn from_single_stack(values: Vec<T>, weight: A) -> Self {
         let floor = new_lower(CompactMap::new(), true);
         let inner = if values.is_empty() {
-            new_interface(floor, acc)
+            new_interface(floor, weight)
         } else {
-            new_interface(new_segment(SV::from_vec(values), floor), acc)
+            new_interface(new_segment(SV::from_vec(values), floor), weight)
         };
-        LeveledGSS { inner }
+        WeightedGss { inner }
     }
 
     /// Materialize at most `max_stacks` concrete stacks.
@@ -2411,7 +2412,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         ) -> bool
         where
             T: Clone + Eq + Hash,
-            A: Merge + Clone + Eq + Hash,
+            A: Weight + Clone + Eq + Hash,
             F: FnMut(usize, &A),
         {
             if lower.empty() && !emit(depth, acc, limit, emitted, f) {
@@ -2443,7 +2444,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         ) -> bool
         where
             T: Clone + Eq + Hash,
-            A: Merge + Clone + Eq + Hash,
+            A: Weight + Clone + Eq + Hash,
             F: FnMut(usize, &A),
         {
             match upper {
@@ -2534,7 +2535,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         ) -> bool
         where
             T: Clone + Eq + Hash,
-            A: Merge + Clone + Eq + Hash,
+            A: Weight + Clone + Eq + Hash,
             F: FnMut(&[T], &A),
         {
             if lower.empty() && !emit(pref, acc, limit, emitted, f) {
@@ -2574,7 +2575,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         ) -> bool
         where
             T: Clone + Eq + Hash,
-            A: Merge + Clone + Eq + Hash,
+            A: Weight + Clone + Eq + Hash,
             F: FnMut(&[T], &A),
         {
             match upper {
@@ -2635,7 +2636,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
     }
 
     #[cfg(test)]
-    /// Compare the concrete stack/accumulator set represented by two GSSes,
+    /// Compare the concrete stack/weight set represented by two GSSes,
     /// independent of their internal sharing or node layout.
     ///
     /// This intentionally materializes stacks and is meant for validation and
@@ -2713,7 +2714,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                 .iter_mut()
                 .find(|(existing_stack, _)| *existing_stack == next)
             {
-                *existing_acc = existing_acc.merge(&acc);
+                *existing_acc = existing_acc.join(&acc);
             } else {
                 out.push((next, acc.clone()));
             }
@@ -2806,7 +2807,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                 .iter_mut()
                 .find(|(existing_stack, _)| *existing_stack == next)
             {
-                *existing_acc = existing_acc.merge(&acc);
+                *existing_acc = existing_acc.join(&acc);
             } else {
                 out.push((next, acc.clone()));
             }
@@ -2840,7 +2841,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                 new_branch(new_children, None)
             }
         };
-        LeveledGSS { inner: new_inner }
+        WeightedGss { inner: new_inner }
     }
 
     /// Equivalent to merging `self.isolate(Some(from)).push(to)` for each
@@ -2931,7 +2932,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                 }
 
                 let shifted_root = new_lower(shifted_children, false);
-                LeveledGSS {
+                WeightedGss {
                     inner: new_interface(shifted_root, i.acc.clone()),
                 }
             }
@@ -2980,7 +2981,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                                     inner: lower_arc,
                                     acc: acc.clone(),
                                 };
-                                let gss = LeveledGSS {
+                                let gss = WeightedGss {
                                     inner: Arc::new(Upper::Interface(Arc::new(i))),
                                 };
                                 return gss.remap_top_values(pairs);
@@ -2988,7 +2989,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                         }
                     }
                     Err(iface_arc) => {
-                        let gss = LeveledGSS {
+                        let gss = WeightedGss {
                             inner: Arc::new(Upper::Interface(iface_arc)),
                         };
                         return gss.remap_top_values(pairs);
@@ -2996,13 +2997,13 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                 }
             }
             Ok(upper @ Upper::Branch(_)) => {
-                let gss = LeveledGSS {
+                let gss = WeightedGss {
                     inner: Arc::new(upper),
                 };
                 return gss.remap_top_values(pairs);
             }
             Err(arc) => {
-                let gss = LeveledGSS { inner: arc };
+                let gss = WeightedGss { inner: arc };
                 return gss.remap_top_values(pairs);
             }
         };
@@ -3051,7 +3052,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         }
 
         let shifted_root = new_lower(shifted_children, false);
-        LeveledGSS {
+        WeightedGss {
             inner: new_interface(shifted_root, acc),
         }
     }
@@ -3093,7 +3094,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
             new_segment(SV::unit(to.clone()), lower_with_top(from.clone(), kids))
         };
 
-        Some(LeveledGSS {
+        Some(WeightedGss {
             inner: new_interface(shifted_root, i.acc.clone()),
         })
     }
@@ -3170,7 +3171,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                     return Self::empty();
                 }
                 let shifted_root = new_lower(shifted_children, false);
-                LeveledGSS {
+                WeightedGss {
                     inner: new_interface(shifted_root, i.acc.clone()),
                 }
             }
@@ -3189,13 +3190,13 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
     }
 
     /// Absorb `base.push(value)` into `self`, using an in-place Interface merge
-    /// when both sides carry the same accumulator annotation.
+    /// when both sides carry the same weight annotation.
     ///
-    /// The accumulator check is semantically required: inserting a lower child
-    /// into an Interface labels that child with the Interface's accumulator.
+    /// The weight check is semantically required: inserting a lower child
+    /// into an Interface labels that child with the Interface's weight.
     /// Different annotations must therefore use the ordinary GSS merge path to
-    /// preserve stack/accumulator correlation.
-    pub fn absorb_push_same_acc(self, value: T, base: &Self) -> Self {
+    /// preserve stack/weight correlation.
+    pub fn absorb_push_same_weight(self, value: T, base: &Self) -> Self {
         if base.is_empty() {
             return self;
         }
@@ -3218,11 +3219,11 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         self.merge(&base.push(value))
     }
 
-    /// Merge a virtual stack whose accumulator equals this GSS's accumulator.
+    /// Merge a virtual stack whose weight equals this GSS's weight.
     ///
     /// This method is optimized for parser workloads and may fall back to a
     /// normal structural merge.
-    pub fn absorb_vstack_same_acc(mut self, stack: &VirtualStack<T, A>) -> Self {
+    pub fn absorb_vstack_same_weight(mut self, stack: &VirtualStack<T, A>) -> Self {
         let mut stack = stack.clone();
         stack.flush_pending();
 
@@ -3271,8 +3272,8 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         self.merge(&stack.into_gss())
     }
 
-    /// Owned variant of [`Self::absorb_vstack_same_acc`].
-    pub fn absorb_vstack_same_acc_owned(mut self, mut stack: VirtualStack<T, A>) -> Self {
+    /// Owned variant of [`Self::absorb_vstack_same_weight`].
+    pub fn absorb_vstack_same_weight_owned(mut self, mut stack: VirtualStack<T, A>) -> Self {
         stack.flush_pending();
 
         if stack.values.is_empty() {
@@ -3373,7 +3374,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         let mut memo_upper: StdHashMap<(usize, isize), Arc<Upper<T, A>>> = StdHashMap::new();
         let mut memo_lower: StdHashMap<(usize, isize), Arc<Lower<T>>> = StdHashMap::new();
 
-        fn popn_lower<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash>(
+        fn popn_lower<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash>(
             node: &Arc<Lower<T>>,
             k: isize,
             memo_lower: &mut StdHashMap<(usize, isize), Arc<Lower<T>>>,
@@ -3425,7 +3426,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
             res
         }
 
-        fn popn_upper<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash>(
+        fn popn_upper<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash>(
             node: &Arc<Upper<T, A>>,
             k: isize,
             memo_upper: &mut StdHashMap<(usize, isize), Arc<Upper<T, A>>>,
@@ -3473,7 +3474,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         }
 
         let new_inner = popn_upper::<T, A>(&self.inner, n, &mut memo_upper, &mut memo_lower);
-        LeveledGSS { inner: new_inner }
+        WeightedGss { inner: new_inner }
     }
 
     fn popn_single_interface_path(&self, n: isize) -> Option<Self> {
@@ -3652,7 +3653,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                     let is_empty = matches!(&*inner,
                         Upper::Branch(b) if b.children.is_empty() && b.empty.is_none());
                     if !is_empty {
-                        f(val.clone(), LeveledGSS { inner });
+                        f(val.clone(), WeightedGss { inner });
                     }
                 }
             }
@@ -3662,7 +3663,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                     let lower = i.inner.segment_rest_arc();
                     if !lower.children_is_empty() || lower.empty() {
                         let upper = new_interface(lower, i.acc.clone());
-                        f(val, LeveledGSS { inner: upper });
+                        f(val, WeightedGss { inner: upper });
                     }
                     return;
                 }
@@ -3680,7 +3681,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                         };
                         if !lower.children_is_empty() || lower.empty() {
                             let upper = new_interface(lower, i.acc.clone());
-                            f(val.clone(), LeveledGSS { inner: upper });
+                            f(val.clone(), WeightedGss { inner: upper });
                         }
                     }
                 }
@@ -3725,7 +3726,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
     }
 
     /// Compute structural statistics without materializing concrete stacks.
-    pub fn summary(&self) -> LeveledGSSSummary {
+    pub fn summary(&self) -> WeightedGssSummary {
         let mut visited_upperbranch: HashSet<usize> = HashSet::new();
         let mut visited_interface: HashSet<usize> = HashSet::new();
         let mut visited_lower: HashSet<usize> = HashSet::new();
@@ -3736,7 +3737,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         let mut lower_general_nodes = 0usize;
         let mut lower_segment_nodes = 0usize;
         let mut total_edges = 0usize;
-        let mut accumulator_instances = 0usize;
+        let mut weight_instances = 0usize;
 
         let mut upper_queue: VecDeque<Arc<Upper<T, A>>> = VecDeque::new();
         upper_queue.push_back(self.inner.clone());
@@ -3751,7 +3752,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                     }
                     upperbranch_nodes += 1;
                     if branch.empty.is_some() {
-                        accumulator_instances += 1;
+                        weight_instances += 1;
                     }
                     for children in branch.children.values() {
                         total_edges += children.len();
@@ -3766,7 +3767,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                         continue;
                     }
                     interface_nodes += 1;
-                    accumulator_instances += 1;
+                    weight_instances += 1;
                     total_edges += 1;
                     lower_queue.push_back(interface.inner.clone());
                 }
@@ -3825,7 +3826,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
             }
         }
 
-        LeveledGSSSummary {
+        WeightedGssSummary {
             top_values_count: self.inner.children_keys().len(),
             upperbranch_nodes,
             interface_nodes,
@@ -3834,7 +3835,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
             lower_segment_nodes,
             total_unique_nodes: upperbranch_nodes + interface_nodes + lower_nodes,
             total_edges,
-            accumulator_instances,
+            weight_instances,
             max_depth: self.max_depth(),
         }
     }
@@ -3937,15 +3938,15 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
             let new_b = new_branch(CompactMap::new(), empty_acc);
             try_promote(&new_b)
         };
-        LeveledGSS { inner: new_inner }
+        WeightedGss { inner: new_inner }
     }
 
-    /// Transform every distinct accumulator while preserving stack paths.
+    /// Transform every distinct weight while preserving stack paths.
     ///
-    /// Equal input accumulators are transformed once and reuse the result.
-    pub fn apply<B, F>(&self, mut func: F) -> LeveledGSS<T, B>
+    /// Equal input weights are transformed once and reuse the result.
+    pub fn apply<B, F>(&self, mut func: F) -> WeightedGss<T, B>
     where
-        B: Merge + Clone + Eq + Hash,
+        B: Weight + Clone + Eq + Hash,
         F: FnMut(&A) -> B,
     {
         let mut acc_memo: StdHashMap<A, B> = StdHashMap::new();
@@ -3971,8 +3972,8 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         ) -> Arc<Upper<T, B>>
         where
             T: Clone + Eq + Hash,
-            A: Merge + Clone + Eq + Hash,
-            B: Merge + Clone + Eq + Hash,
+            A: Weight + Clone + Eq + Hash,
+            B: Weight + Clone + Eq + Hash,
             F: FnMut(&A) -> B,
         {
             match &**node {
@@ -3998,55 +3999,54 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
             }
         }
 
-        LeveledGSS {
+        WeightedGss {
             inner: transform::<T, A, B, F>(&self.inner, &mut acc_memo, &mut func),
         }
     }
 
-    /// Partition this GSS by accumulator value.
+    /// Partition this GSS by weight value.
     ///
     /// Each result retains precisely the original stack paths labelled with the
-    /// paired accumulator. The returned GSS erases that label to `()`, so later
-    /// users can keep the accumulator as branch-local state without losing its
+    /// paired weight. The returned GSS erases that label to `()`, so later
+    /// users can keep the weight as branch-local state without losing its
     /// correlation with parser paths.
-    pub fn partition_by_accumulator(&self) -> Vec<(LeveledGSS<T, ()>, A)> {
-        let mut accumulators = Vec::new();
-        self.for_each_acc(|accumulator| {
-            if !accumulators.contains(accumulator) {
-                accumulators.push(accumulator.clone());
+    pub fn partition_by_weight(&self) -> Vec<(WeightedGss<T, ()>, A)> {
+        let mut weights = Vec::new();
+        self.for_each_weight(|weight| {
+            if !weights.contains(weight) {
+                weights.push(weight.clone());
             }
         });
 
-        accumulators
+        weights
             .into_iter()
-            .map(|accumulator| {
-                let paths =
-                    self.apply_and_prune(|candidate| (candidate == &accumulator).then_some(()));
-                (paths, accumulator)
+            .map(|weight| {
+                let paths = self.apply_and_prune(|candidate| (candidate == &weight).then_some(()));
+                (paths, weight)
             })
             .collect()
     }
 
-    /// Transform accumulators and discard paths mapped to `None`.
+    /// Transform weights and discard paths mapped to `None`.
     ///
-    /// Equal input accumulators are transformed once and reuse the result.
-    pub fn apply_and_prune<B, M>(&self, mut mutator: M) -> LeveledGSS<T, B>
+    /// Equal input weights are transformed once and reuse the result.
+    pub fn apply_and_prune<B, M>(&self, mut mutator: M) -> WeightedGss<T, B>
     where
-        B: Merge + Clone + Eq + Hash,
+        B: Weight + Clone + Eq + Hash,
         M: FnMut(&A) -> Option<B>,
     {
         // Fast path: single Interface at root — no memo or tree traversal needed.
         if let Upper::Interface(i) = &*self.inner {
             return match mutator(&i.acc) {
-                Some(new_acc) => LeveledGSS {
+                Some(new_acc) => WeightedGss {
                     inner: new_interface(i.inner.clone(), new_acc),
                 },
-                None => LeveledGSS::empty(),
+                None => WeightedGss::empty(),
             };
         }
 
         // Use a flat Vec for memo instead of HashMap — avoids hashing cost
-        // for the typical case of 2-4 unique accumulators.
+        // for the typical case of 2-4 unique weights.
         let mut acc_memo: Vec<(A, Option<B>)> = Vec::with_capacity(4);
 
         fn mutate_acc<A, B, M>(a: &A, memo: &mut Vec<(A, Option<B>)>, m: &mut M) -> Option<B>
@@ -4072,8 +4072,8 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         ) -> Option<Arc<Upper<T, B>>>
         where
             T: Clone + Eq + Hash,
-            A: Merge + Clone + Eq + Hash,
-            B: Merge + Clone + Eq + Hash,
+            A: Weight + Clone + Eq + Hash,
+            B: Weight + Clone + Eq + Hash,
             M: FnMut(&A) -> Option<B>,
         {
             match &**node {
@@ -4112,21 +4112,21 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         }
 
         let res_inner_opt = transform::<T, A, B, M>(&self.inner, &mut acc_memo, &mut mutator);
-        res_inner_opt.map_or_else(LeveledGSS::<T, B>::empty, |inner| LeveledGSS::<T, B> {
+        res_inner_opt.map_or_else(WeightedGss::<T, B>::empty, |inner| WeightedGss::<T, B> {
             inner,
         })
     }
 
     /// Like a cross-type no-promote transform followed by decompose_and_pop, but avoids
     /// building the root-level Branch node. Returns (value, sub_gss) pairs directly,
-    /// plus a Vec of "root accumulators" (transformed empty values at the root Branch)
+    /// plus a Vec of "root weights" (transformed empty values at the root Branch)
     /// to be checked for final_weight separately.
     pub fn apply_transform_and_decompose<B, M>(
         &self,
         mut mutator: M,
-    ) -> (Vec<(T, LeveledGSS<T, B>)>, Vec<B>)
+    ) -> (Vec<(T, WeightedGss<T, B>)>, Vec<B>)
     where
-        B: Merge + Clone + Eq + Hash,
+        B: Weight + Clone + Eq + Hash,
         M: FnMut(&A) -> Option<B>,
     {
         let mut acc_memo: Vec<(A, Option<B>)> = Vec::with_capacity(4);
@@ -4154,8 +4154,8 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         ) -> Option<Arc<Upper<T, B>>>
         where
             T: Clone + Eq + Hash,
-            A: Merge + Clone + Eq + Hash,
-            B: Merge + Clone + Eq + Hash,
+            A: Weight + Clone + Eq + Hash,
+            B: Weight + Clone + Eq + Hash,
             M: FnMut(&A) -> Option<B>,
         {
             match &**node {
@@ -4208,7 +4208,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                         let rest = i.inner.segment_rest_arc();
                         if !rest.children_is_empty() || rest.empty() {
                             let upper = new_interface(rest, new_acc.clone());
-                            result.push((value.clone(), LeveledGSS { inner: upper }));
+                            result.push((value.clone(), WeightedGss { inner: upper }));
                         }
                     }
                     Lower::General { children, .. } => {
@@ -4225,7 +4225,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                             };
                             if !lower.children_is_empty() || lower.empty() {
                                 let upper = new_interface(lower, new_acc.clone());
-                                result.push((val.clone(), LeveledGSS { inner: upper }));
+                                result.push((val.clone(), WeightedGss { inner: upper }));
                             }
                         }
                     }
@@ -4267,7 +4267,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                     let is_empty = matches!(&*merged,
                         Upper::Branch(b) if b.children.is_empty() && b.empty.is_none());
                     if !is_empty {
-                        result.push((val.clone(), LeveledGSS { inner: merged }));
+                        result.push((val.clone(), WeightedGss { inner: merged }));
                     }
                 }
                 (result, root_accs)
@@ -4282,10 +4282,10 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         if let Upper::Interface(i) = &*self.inner {
             return match mutator(&i.acc) {
                 Some(new_acc) if new_acc == i.acc => self.clone(),
-                Some(new_acc) => LeveledGSS {
+                Some(new_acc) => WeightedGss {
                     inner: new_interface(i.inner.clone(), new_acc),
                 },
-                None => LeveledGSS::empty(),
+                None => WeightedGss::empty(),
             };
         }
 
@@ -4313,7 +4313,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         ) -> Option<Arc<Upper<T, A>>>
         where
             T: Clone + Eq + Hash,
-            A: Merge + Clone + Eq + Hash,
+            A: Weight + Clone + Eq + Hash,
             M: FnMut(&A) -> Option<A>,
         {
             match &**node {
@@ -4380,9 +4380,9 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         res_inner_opt.map_or_else(Self::empty, |inner| Self { inner })
     }
 
-    /// Return the union of two GSS values.
+    /// Return the union of two weighted GSS values.
     ///
-    /// Equivalent paths have their accumulators joined with [`Merge::merge`].
+    /// Equivalent stacks have their weights joined with [`Weight::join`].
     pub fn merge(&self, other: &Self) -> Self {
         if self.is_empty() {
             return other.clone();
@@ -4391,7 +4391,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
             return self.clone();
         }
         let merged_inner = merge_upper(&self.inner, &other.inner);
-        LeveledGSS {
+        WeightedGss {
             inner: merged_inner,
         }
     }
@@ -4400,7 +4400,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
     pub fn merge_many(gsses: impl IntoIterator<Item = Self>) -> Self {
         let mut items: Vec<Self> = gsses.into_iter().collect();
         if items.is_empty() {
-            return LeveledGSS::empty();
+            return WeightedGss::empty();
         }
         if items.len() == 1 {
             return items.into_iter().next().unwrap();
@@ -4459,7 +4459,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         ) -> Arc<Lower<T>>
         where
             T: Clone + Eq + Hash,
-            A: Merge + Clone + Eq + Hash,
+            A: Weight + Clone + Eq + Hash,
         {
             if let Some(r) = remain {
                 if r == 0 {
@@ -4541,7 +4541,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         ) -> Arc<Upper<T, A>>
         where
             T: Clone + Eq + Hash,
-            A: Merge + Clone + Eq + Hash,
+            A: Weight + Clone + Eq + Hash,
         {
             if let Some(r) = remain {
                 if r == 0 {
@@ -4621,7 +4621,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         if Arc::ptr_eq(&new_inner, &self.inner) {
             self.clone()
         } else {
-            LeveledGSS { inner: new_inner }
+            WeightedGss { inner: new_inner }
         }
     }
 
@@ -4736,7 +4736,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         ) -> usize
         where
             T: Clone + Eq + Hash,
-            A: Merge + Clone + Eq + Hash,
+            A: Weight + Clone + Eq + Hash,
         {
             let ptr = Arc::as_ptr(node) as usize;
             if let Some(&cached) = memo_upper.get(&ptr) {
@@ -4810,16 +4810,16 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
             return None;
         }
         let mut top_first = SmallVec::<[T; 16]>::new();
-        let acc = self.single_path_top_first_and_acc(&mut top_first)?;
+        let acc = self.single_path_top_first_and_weight(&mut top_first)?;
         let mut stack = top_first.into_vec();
         stack.reverse();
         Some((stack, acc))
     }
 
-    /// Write the sole stack path to `out` in top-first order and return its accumulator.
+    /// Write the sole stack path to `out` in top-first order and return its weight.
     ///
     /// Returns `None` when zero or multiple structural paths are represented.
-    pub fn single_path_top_first_and_acc(&self, out: &mut SmallVec<[T; 16]>) -> Option<A> {
+    pub fn single_path_top_first_and_weight(&self, out: &mut SmallVec<[T; 16]>) -> Option<A> {
         fn push_lower_path<T>(node: &Arc<Lower<T>>, out: &mut SmallVec<[T; 16]>) -> bool
         where
             T: Clone + Eq + Hash,
@@ -4853,7 +4853,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         fn push_upper_path<T, A>(node: &Arc<Upper<T, A>>, out: &mut SmallVec<[T; 16]>) -> Option<A>
         where
             T: Clone + Eq + Hash,
-            A: Merge + Clone + Eq + Hash,
+            A: Weight + Clone + Eq + Hash,
         {
             match &**node {
                 Upper::Interface(interface) => {
@@ -4888,10 +4888,10 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         }
     }
 
-    /// Join all distinct stored accumulators.
+    /// Join all distinct stored weights.
     ///
     /// Returns `None` when there are no active paths.
-    pub fn reduce_acc(&self) -> Option<A> {
+    pub fn join_weights(&self) -> Option<A> {
         let mut unique: HashSet<A> = HashSet::new();
         let mut queue: VecDeque<Arc<Upper<T, A>>> = VecDeque::new();
         let mut visited: HashSet<usize> = HashSet::new();
@@ -4921,13 +4921,13 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
 
         let mut it = unique.into_iter();
         let first = it.next()?;
-        let reduced = it.fold(first, |acc, next| acc.merge(&next));
+        let reduced = it.fold(first, |acc, next| acc.join(&next));
         Some(reduced)
     }
 
-    /// Visit each accumulator in the GSS without collecting or merging.
-    /// Uses pointer-based visited set to avoid hashing accumulators.
-    pub fn for_each_acc(&self, mut f: impl FnMut(&A)) {
+    /// Visit each weight in the GSS without collecting or merging.
+    /// Uses pointer-based visited set to avoid hashing weights.
+    pub fn for_each_weight(&self, mut f: impl FnMut(&A)) {
         const INLINE_VISITED_PTRS: usize = 32;
 
         enum VisitedPtrs {
@@ -4963,7 +4963,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
             }
         }
 
-        fn walk<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash>(
+        fn walk<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash>(
             node: &Arc<Upper<T, A>>,
             visited: &mut VisitedPtrs,
             f: &mut impl FnMut(&A),
@@ -4992,11 +4992,11 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         walk(&self.inner, &mut visited, &mut f);
     }
 
-    /// Returns true if all accumulators in the upper tree satisfy the predicate.
-    /// Short-circuits on the first accumulator that doesn't.
+    /// Returns true if all weights in the upper tree satisfy the predicate.
+    /// Short-circuits on the first weight that doesn't.
     /// For a single Interface node (common case), this is O(1).
-    pub fn all_accs_satisfy(&self, pred: impl Fn(&A) -> bool) -> bool {
-        fn check<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash>(
+    pub fn all_weights_satisfy(&self, pred: impl Fn(&A) -> bool) -> bool {
+        fn check<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash>(
             node: &Arc<Upper<T, A>>,
             pred: &impl Fn(&A) -> bool,
         ) -> bool {
@@ -5044,30 +5044,31 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        CompactMap, CompactOrdMap, GssSemanticKeyInterner, LeveledGSS, Lower, Merge, new_interface,
+        CompactMap, CompactOrdMap, GssSemanticKeyInterner, Lower, Weight, WeightedGss,
+        new_interface,
     };
 
     #[derive(Clone, Debug, PartialEq, Eq, Hash)]
     struct TestAcc(u32);
 
-    impl Merge for TestAcc {
-        fn merge(&self, other: &Self) -> Self {
+    impl Weight for TestAcc {
+        fn join(&self, other: &Self) -> Self {
             Self(self.0.max(other.0))
         }
     }
 
     #[test]
 
-    fn semantic_equality_compares_stack_accumulator_sets() {
-        let left = LeveledGSS::merge_many([
-            LeveledGSS::from_single_stack(vec![0_u32, 1, 7], TestAcc(1)),
-            LeveledGSS::from_single_stack(vec![0_u32, 1, 9], TestAcc(2)),
+    fn semantic_equality_compares_stack_weight_sets() {
+        let left = WeightedGss::merge_many([
+            WeightedGss::from_single_stack(vec![0_u32, 1, 7], TestAcc(1)),
+            WeightedGss::from_single_stack(vec![0_u32, 1, 9], TestAcc(2)),
         ]);
-        let same = LeveledGSS::from_stacks(&[
+        let same = WeightedGss::from_stacks(&[
             (vec![0_u32, 1, 9], TestAcc(2)),
             (vec![0_u32, 1, 7], TestAcc(1)),
         ]);
-        let different_acc = LeveledGSS::from_stacks(&[
+        let different_acc = WeightedGss::from_stacks(&[
             (vec![0_u32, 1, 9], TestAcc(3)),
             (vec![0_u32, 1, 7], TestAcc(1)),
         ]);
@@ -5089,7 +5090,7 @@ mod tests {
 
     #[test]
     fn to_stacks_returns_none_instead_of_truncating() {
-        let gss = LeveledGSS::from_stacks(&[
+        let gss = WeightedGss::from_stacks(&[
             (vec![0_u32, 1], TestAcc(1)),
             (vec![0_u32, 2], TestAcc(2)),
             (vec![0_u32, 3], TestAcc(3)),
@@ -5117,7 +5118,7 @@ mod tests {
                 max_depth: depth + 1,
             });
         }
-        let gss = LeveledGSS {
+        let gss = WeightedGss {
             inner: new_interface(lower, TestAcc(0)),
         };
 
@@ -5127,14 +5128,14 @@ mod tests {
     }
 
     #[test]
-    fn semantic_key_ignores_segment_general_layout_and_accumulators() {
-        let segment = LeveledGSS::from_single_stack(vec![0_u32, 1], TestAcc(1));
+    fn semantic_key_ignores_segment_general_layout_and_weights() {
+        let segment = WeightedGss::from_single_stack(vec![0_u32, 1], TestAcc(1));
 
-        let floor = LeveledGSS::from_single_stack(Vec::<u32>::new(), TestAcc(9));
-        let one_segment = LeveledGSS::from_single_stack(vec![0_u32], TestAcc(9));
-        let one_general = one_segment.absorb_push_same_acc(0, &floor);
+        let floor = WeightedGss::from_single_stack(Vec::<u32>::new(), TestAcc(9));
+        let one_segment = WeightedGss::from_single_stack(vec![0_u32], TestAcc(9));
+        let one_general = one_segment.absorb_push_same_weight(0, &floor);
         let segment_over_general = one_general.push(1);
-        let two_generals = segment_over_general.absorb_push_same_acc(1, &one_general);
+        let two_generals = segment_over_general.absorb_push_same_weight(1, &one_general);
 
         let segment_stacks = segment
             .to_stacks(1)
@@ -5147,7 +5148,7 @@ mod tests {
         let mut interner = GssSemanticKeyInterner::new();
         assert_eq!(interner.key(&segment), interner.key(&two_generals));
 
-        let different = LeveledGSS::from_single_stack(vec![0_u32, 2], TestAcc(1));
+        let different = WeightedGss::from_single_stack(vec![0_u32, 2], TestAcc(1));
         assert_ne!(interner.key(&segment), interner.key(&different));
     }
 
@@ -5171,22 +5172,20 @@ mod tests {
                 .filter(|(index, _)| language_bits & (1 << index) != 0)
                 .map(|(index, stack)| (stack.clone(), TestAcc(index as u32)))
                 .collect::<Vec<_>>();
-            let canonical = LeveledGSS::from_stacks(&stacks);
-            let reversed_merge = LeveledGSS::merge_many(
+            let canonical = WeightedGss::from_stacks(&stacks);
+            let reversed_merge =
+                WeightedGss::merge_many(stacks.iter().rev().map(|(stack, acc)| {
+                    WeightedGss::from_single_stack(stack.clone(), acc.clone())
+                }));
+            let different_weights = WeightedGss::merge_many(
                 stacks
                     .iter()
-                    .rev()
-                    .map(|(stack, acc)| LeveledGSS::from_single_stack(stack.clone(), acc.clone())),
-            );
-            let different_accumulators = LeveledGSS::merge_many(
-                stacks
-                    .iter()
-                    .map(|(stack, _)| LeveledGSS::from_single_stack(stack.clone(), TestAcc(100))),
+                    .map(|(stack, _)| WeightedGss::from_single_stack(stack.clone(), TestAcc(100))),
             );
 
             let key = interner.key(&canonical);
             assert_eq!(key, interner.key(&reversed_merge));
-            assert_eq!(key, interner.key(&different_accumulators));
+            assert_eq!(key, interner.key(&different_weights));
             assert_eq!(language_by_key.insert(key, language_bits), None);
         }
     }
@@ -5209,7 +5208,7 @@ mod tests {
                 max_depth: depth + 1,
             });
         }
-        let gss = LeveledGSS {
+        let gss = WeightedGss {
             inner: new_interface(lower, TestAcc(0)),
         };
 
@@ -5236,7 +5235,7 @@ mod tests {
             empty: false,
             max_depth: 2,
         });
-        let gss = LeveledGSS {
+        let gss = WeightedGss {
             inner: new_interface(lower_one, TestAcc(7)),
         };
 
@@ -5263,7 +5262,7 @@ mod tests {
                 max_depth: child_depth + 1,
             });
         }
-        let gss = LeveledGSS {
+        let gss = WeightedGss {
             inner: new_interface(lower, TestAcc(0)),
         };
 
@@ -5281,7 +5280,7 @@ mod tests {
 
     #[test]
     fn bounded_top_first_stack_traversal_matches_to_stacks() {
-        let gss = LeveledGSS::from_stacks(&[
+        let gss = WeightedGss::from_stacks(&[
             (vec![0_u32, 1, 7], TestAcc(1)),
             (vec![0_u32, 2, 8, 9], TestAcc(2)),
             (vec![0_u32, 2, 8, 10], TestAcc(2)),
@@ -5312,7 +5311,7 @@ mod tests {
 
     #[test]
     fn bounded_stack_length_traversal_matches_concrete_stacks() {
-        let gss = LeveledGSS::from_stacks(&[
+        let gss = WeightedGss::from_stacks(&[
             (vec![0_u32, 1, 7], TestAcc(1)),
             (vec![0_u32, 2, 8, 9], TestAcc(2)),
             (vec![0_u32, 2, 8, 10], TestAcc(2)),
@@ -5339,8 +5338,8 @@ mod tests {
     }
 
     #[test]
-    fn isolate_top_value_preserves_branch_accumulator_correlation() {
-        let gss = LeveledGSS::from_stacks(&[
+    fn isolate_top_value_preserves_branch_weight_correlation() {
+        let gss = WeightedGss::from_stacks(&[
             (vec![0_u32, 10, 20], TestAcc(1)),
             (vec![0_u32, 10, 21], TestAcc(2)),
         ]);
@@ -5360,8 +5359,8 @@ mod tests {
     }
 
     #[test]
-    fn branch_pure_shift_preserves_selected_accumulator_correlation() {
-        let gss = LeveledGSS::from_stacks(&[
+    fn branch_pure_shift_preserves_selected_weight_correlation() {
+        let gss = WeightedGss::from_stacks(&[
             (vec![0_u32, 10, 20], TestAcc(1)),
             (vec![0_u32, 10, 21], TestAcc(2)),
         ]);
@@ -5375,9 +5374,9 @@ mod tests {
     }
 
     #[test]
-    fn merging_distinct_accumulator_branches_preserves_path_correlation() {
-        let left = LeveledGSS::from_single_stack(vec![0_u32, 10, 20, 40], TestAcc(1));
-        let right = LeveledGSS::from_single_stack(vec![0_u32, 46], TestAcc(2));
+    fn merging_distinct_weight_branches_preserves_path_correlation() {
+        let left = WeightedGss::from_single_stack(vec![0_u32, 10, 20, 40], TestAcc(1));
+        let right = WeightedGss::from_single_stack(vec![0_u32, 46], TestAcc(2));
         let merged = left.merge(&right);
         let stacks = merged
             .to_stacks(4_096)
@@ -5389,10 +5388,10 @@ mod tests {
     }
 
     #[test]
-    fn absorb_push_preserves_different_interface_accumulator_correlation() {
-        let shifted = LeveledGSS::from_single_stack(vec![0_u32, 46], TestAcc(2));
-        let base = LeveledGSS::from_single_stack(vec![0_u32, 10, 20], TestAcc(1));
-        let absorbed = shifted.absorb_push_same_acc(40, &base);
+    fn absorb_push_preserves_different_interface_weight_correlation() {
+        let shifted = WeightedGss::from_single_stack(vec![0_u32, 46], TestAcc(2));
+        let base = WeightedGss::from_single_stack(vec![0_u32, 10, 20], TestAcc(1));
+        let absorbed = shifted.absorb_push_same_weight(40, &base);
         let stacks = absorbed
             .to_stacks(4_096)
             .expect("stack enumeration exceeded explicit limit");
@@ -5404,12 +5403,12 @@ mod tests {
 
     #[test]
     fn absorb_push_preserves_push_when_receiver_is_branch() {
-        let shifted = LeveledGSS::from_stacks(&[
+        let shifted = WeightedGss::from_stacks(&[
             (vec![0_u32, 46], TestAcc(2)),
             (vec![0_u32, 47], TestAcc(3)),
         ]);
-        let base = LeveledGSS::from_single_stack(vec![0_u32, 10, 20], TestAcc(1));
-        let absorbed = shifted.absorb_push_same_acc(40, &base);
+        let base = WeightedGss::from_single_stack(vec![0_u32, 10, 20], TestAcc(1));
+        let absorbed = shifted.absorb_push_same_weight(40, &base);
         let stacks = absorbed
             .to_stacks(4_096)
             .expect("stack enumeration exceeded explicit limit");
@@ -5422,7 +5421,7 @@ mod tests {
 
     #[test]
     fn apply_shared_pop_push_branches_matches_virtual_stack_branch_builder() {
-        let gss = LeveledGSS::from_single_stack(vec![10_u32, 20, 30, 40], TestAcc(1));
+        let gss = WeightedGss::from_single_stack(vec![10_u32, 20, 30, 40], TestAcc(1));
         let pushes = [vec![50_u32, 60], vec![70_u32, 80], vec![90_u32, 60]];
 
         let expected = gss
@@ -5450,10 +5449,10 @@ mod tests {
 
     #[test]
     fn apply_shared_pop_push_single_branches_deduplicates_targets() {
-        let gss = LeveledGSS::from_single_stack(vec![10_u32, 20, 30, 40], TestAcc(1));
+        let gss = WeightedGss::from_single_stack(vec![10_u32, 20, 30, 40], TestAcc(1));
         let targets = [60_u32, 70, 60];
 
-        let expected = LeveledGSS::from_stacks(&[
+        let expected = WeightedGss::from_stacks(&[
             (vec![10_u32, 20, 60], TestAcc(1)),
             (vec![10_u32, 20, 70], TestAcc(1)),
         ]);
@@ -5487,7 +5486,7 @@ mod tests {
         let stacks: Vec<_> = (100_u32..111)
             .map(|top| (vec![0_u32, 1, 12, 30, top], acc.clone()))
             .collect();
-        let branched = LeveledGSS::from_stacks(&stacks);
+        let branched = WeightedGss::from_stacks(&stacks);
 
         let summary = branched.summary();
         let flattened = branched
@@ -5519,7 +5518,7 @@ mod tests {
 
     #[test]
     fn shared_suffix_compaction_is_order_insensitive() {
-        fn assert_compact(gss: LeveledGSS<u32, TestAcc>) {
+        fn assert_compact(gss: WeightedGss<u32, TestAcc>) {
             let summary = gss.summary();
             assert_eq!(summary.top_values_count, 11, "summary={summary:#?}");
             assert_eq!(summary.lower_general_nodes, 2, "summary={summary:#?}");
@@ -5539,13 +5538,12 @@ mod tests {
                 .iter()
                 .map(|top| (vec![0_u32, 1, 12, 30, *top], acc.clone()))
                 .collect();
-            assert_compact(LeveledGSS::from_stacks(&stacks));
+            assert_compact(WeightedGss::from_stacks(&stacks));
 
-            let merged = LeveledGSS::merge_many(
-                stacks
-                    .iter()
-                    .map(|(stack, acc)| LeveledGSS::from_single_stack(stack.clone(), acc.clone())),
-            );
+            let merged =
+                WeightedGss::merge_many(stacks.iter().map(|(stack, acc)| {
+                    WeightedGss::from_single_stack(stack.clone(), acc.clone())
+                }));
             assert_compact(merged);
         }
     }
@@ -5553,7 +5551,7 @@ mod tests {
     #[test]
     fn selective_top_pure_shift_extracts_one_shared_prefix_path() {
         let acc = TestAcc(7);
-        let gss = LeveledGSS::from_stacks(&[
+        let gss = WeightedGss::from_stacks(&[
             (vec![0_u32, 1, 17, 47, 74, 131], acc.clone()),
             (vec![0_u32, 1, 17, 47, 74, 132], acc.clone()),
             (vec![0_u32, 1, 17, 47, 74, 133], acc.clone()),
@@ -5574,7 +5572,7 @@ mod tests {
     #[test]
     fn generic_top_pure_shift_matches_selective_shared_prefix_shape() {
         let acc = TestAcc(7);
-        let gss = LeveledGSS::from_stacks(&[
+        let gss = WeightedGss::from_stacks(&[
             (vec![0_u32, 1, 17, 47, 74, 131], acc.clone()),
             (vec![0_u32, 1, 17, 47, 74, 132], acc.clone()),
             (vec![0_u32, 1, 17, 47, 74, 133], acc.clone()),
@@ -5594,7 +5592,7 @@ mod tests {
     #[ignore]
     fn bench_generic_top_pure_shift_shared_prefix_shape() {
         let acc = TestAcc(7);
-        let gss = LeveledGSS::from_stacks(&[
+        let gss = WeightedGss::from_stacks(&[
             (vec![0_u32, 1, 17, 47, 74, 131], acc.clone()),
             (vec![0_u32, 1, 17, 47, 74, 132], acc.clone()),
             (vec![0_u32, 1, 17, 47, 74, 133], acc),
@@ -5625,23 +5623,23 @@ mod tests {
         );
     }
     #[test]
-    fn partition_by_accumulator_preserves_path_correlation() {
+    fn partition_by_weight_preserves_path_correlation() {
         #[derive(Clone, Debug, PartialEq, Eq, Hash)]
         struct Acc(u8);
 
-        impl Merge for Acc {
-            fn merge(&self, other: &Self) -> Self {
+        impl Weight for Acc {
+            fn join(&self, other: &Self) -> Self {
                 Acc(self.0.max(other.0))
             }
         }
 
-        let gss = LeveledGSS::from_stacks(&[
+        let gss = WeightedGss::from_stacks(&[
             (vec![1, 2], Acc(1)),
             (vec![1, 3], Acc(2)),
             (vec![4], Acc(1)),
         ]);
-        let mut partitions = gss.partition_by_accumulator();
-        partitions.sort_by_key(|(_, accumulator)| accumulator.0);
+        let mut partitions = gss.partition_by_weight();
+        partitions.sort_by_key(|(_, weight)| weight.0);
 
         let mut first = partitions
             .remove(0)

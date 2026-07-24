@@ -1,13 +1,13 @@
 use std::collections::BTreeMap;
 
-use leveled_gss::{LeveledGSS, Merge};
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use weighted_gss::{Weight, WeightedGss};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct Acc(u64);
 
-impl Merge for Acc {
-    fn merge(&self, other: &Self) -> Self {
+impl Weight for Acc {
+    fn join(&self, other: &Self) -> Self {
         Self(self.0 | other.0)
     }
 }
@@ -19,13 +19,13 @@ fn canonical(stacks: impl IntoIterator<Item = (Vec<u8>, Acc)>) -> Model {
     for (stack, acc) in stacks {
         model
             .entry(stack)
-            .and_modify(|current| *current = current.merge(&acc))
+            .and_modify(|current| *current = current.join(&acc))
             .or_insert(acc);
     }
     model
 }
 
-fn materialize(gss: &LeveledGSS<u8, Acc>) -> Model {
+fn materialize(gss: &WeightedGss<u8, Acc>) -> Model {
     canonical(
         gss.to_stacks(1_000_000)
             .expect("random model unexpectedly exceeded traversal limit"),
@@ -42,8 +42,8 @@ fn random_model(rng: &mut StdRng) -> Model {
     }))
 }
 
-fn from_model(model: &Model) -> LeveledGSS<u8, Acc> {
-    LeveledGSS::from_stacks(
+fn from_model(model: &Model) -> WeightedGss<u8, Acc> {
+    WeightedGss::from_stacks(
         &model
             .iter()
             .map(|(stack, acc)| (stack.clone(), *acc))
@@ -80,7 +80,7 @@ fn isolate_model(model: &Model, value: Option<u8>) -> Model {
     }))
 }
 
-fn assert_matches(gss: &LeveledGSS<u8, Acc>, model: &Model, context: &str) {
+fn assert_matches(gss: &WeightedGss<u8, Acc>, model: &Model, context: &str) {
     assert_eq!(materialize(gss), *model, "semantic mismatch: {context}");
     assert_eq!(gss.is_empty(), model.is_empty());
     assert_eq!(
@@ -105,8 +105,8 @@ fn assert_matches(gss: &LeveledGSS<u8, Acc>, model: &Model, context: &str) {
     let expected_acc = model
         .values()
         .copied()
-        .reduce(|left, right| left.merge(&right));
-    assert_eq!(gss.reduce_acc(), expected_acc);
+        .reduce(|left, right| left.join(&right));
+    assert_eq!(gss.join_weights(), expected_acc);
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn randomized_operations_match_an_explicit_set_of_stacks() {
                 }
                 _ => {
                     let rebuilt = from_model(&model);
-                    gss = LeveledGSS::merge_many([gss, rebuilt]);
+                    gss = WeightedGss::merge_many([gss, rebuilt]);
                 }
             }
             assert_matches(&gss, &model, &format!("seed={seed} step={step}"));
@@ -163,9 +163,9 @@ fn randomized_operations_match_an_explicit_set_of_stacks() {
 
 #[test]
 fn compressed_binary_dag_preserves_all_paths() {
-    let mut gss = LeveledGSS::from_single_stack(Vec::<u8>::new(), Acc(1));
+    let mut gss = WeightedGss::from_single_stack(Vec::<u8>::new(), Acc(1));
     for level in 0..18 {
-        gss = LeveledGSS::merge_many([gss.push(level * 2), gss.push(level * 2 + 1)]);
+        gss = WeightedGss::merge_many([gss.push(level * 2), gss.push(level * 2 + 1)]);
     }
     assert_eq!(gss.path_count_at_most(300_000), 1 << 18);
     assert!(gss.to_stacks(100_000).is_none());
@@ -176,7 +176,7 @@ fn compressed_binary_dag_preserves_all_paths() {
 #[test]
 fn popping_discards_underflowing_paths() {
     let gss =
-        LeveledGSS::from_stacks(&[(vec![], Acc(1)), (vec![10], Acc(2)), (vec![10, 20], Acc(4))]);
+        WeightedGss::from_stacks(&[(vec![], Acc(1)), (vec![10], Acc(2)), (vec![10, 20], Acc(4))]);
 
     assert_eq!(
         materialize(&gss.popn(1)),

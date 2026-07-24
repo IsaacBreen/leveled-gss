@@ -1,56 +1,56 @@
-# leveled-gss
+# weighted-gss
 
-[![CI](https://github.com/IsaacBreen/leveled-gss/actions/workflows/ci.yml/badge.svg)](https://github.com/IsaacBreen/leveled-gss/actions/workflows/ci.yml)
+[![CI](https://github.com/IsaacBreen/weighted-gss/actions/workflows/ci.yml/badge.svg)](https://github.com/IsaacBreen/weighted-gss/actions/workflows/ci.yml)
 
-A persistent, weighted graph-structured stack with leveled sharing, implemented in Rust with Python bindings.
+A persistent weighted graph-structured stack, implemented in Rust with Python bindings.
 
-`leveled-gss` represents a set of stacks as one immutable graph. Common suffixes are shared; branching and merging preserve path-specific accumulators; and deterministic prefixes can be manipulated through a mutable `VirtualStack` fast path. The implementation was extracted from the data structure used by [GLRMask](https://github.com/IsaacBreen/glrmask).
+`weighted-gss` represents a finite map from complete stacks to weights. Stack suffixes are shared in a compact graph, and whenever stack operations make two stacks identical, their weights are joined. The implementation uses leveled sharing, weight-free shared suffixes, compact deterministic segments, and persistent path copying.
 
-The API is experimental and follows semantic versioning. Version 0.1 is suitable for evaluation and integration, but may receive breaking API changes in later 0.x releases.
+The implementation was extracted from the graph-structured stack used by [GLRMask](https://github.com/IsaacBreen/glrmask). Version 0.1 is suitable for evaluation and integration; later 0.x releases may make breaking API changes.
 
 ## Installation
 
 Rust:
 
 ```bash
-cargo add leveled-gss
+cargo add weighted-gss
 ```
 
 Python 3.8 or later:
 
 ```bash
-python -m pip install leveled-gss
+python -m pip install weighted-gss
 ```
 
-Install the unreleased Git head with either Cargo or pip:
+Install the unreleased Git head:
 
 ```toml
 [dependencies]
-leveled-gss = { git = "https://github.com/IsaacBreen/leveled-gss" }
+weighted-gss = { git = "https://github.com/IsaacBreen/weighted-gss" }
 ```
 
 ```bash
-python -m pip install "git+https://github.com/IsaacBreen/leveled-gss"
+python -m pip install "git+https://github.com/IsaacBreen/weighted-gss"
 ```
 
 ## Rust example
 
-Stacks are passed bottom-to-top.
+Stacks are ordered bottom-to-top.
 
 ```rust
-use leveled_gss::{LeveledGSS, Merge};
+use weighted_gss::{Weight, WeightedGss};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Cost(u32);
 
-impl Merge for Cost {
-    fn merge(&self, other: &Self) -> Self {
+impl Weight for Cost {
+    fn join(&self, other: &Self) -> Self {
         Cost(self.0.min(other.0))
     }
 }
 
-let left = LeveledGSS::from_single_stack(vec![0_u32, 1, 2], Cost(7));
-let right = LeveledGSS::from_single_stack(vec![0_u32, 1, 3], Cost(4));
+let left = WeightedGss::from_single_stack(vec![0_u32, 1, 2], Cost(7));
+let right = WeightedGss::from_single_stack(vec![0_u32, 1, 3], Cost(4));
 let gss = left.merge(&right).push(9);
 
 let mut stacks = gss.to_stacks(8).expect("materialization limit exceeded");
@@ -64,18 +64,18 @@ assert_eq!(
 );
 ```
 
-`Merge` is a join operation, not an arbitrary reduction. It must be associative, commutative, and idempotent. Set union, bitwise OR, minimum, and maximum are valid examples. Addition generally is not.
+`Weight::join` must be associative, commutative, and idempotent. Set union, bitwise OR, minimum, and maximum are valid examples. Addition generally is not.
 
-The Rust API reference is generated on [docs.rs](https://docs.rs/leveled-gss).
+The Rust API reference is generated on [docs.rs](https://docs.rs/weighted-gss).
 
 ## Python example
 
-Unweighted use stores `None` as the accumulator:
+Unweighted use stores `None` as the weight:
 
 ```python
-from leveled_gss import LeveledGSS
+from weighted_gss import WeightedGSS
 
-gss = LeveledGSS.from_unweighted([[0, 1, 2], [0, 1, 3]])
+gss = WeightedGSS.from_unweighted([[0, 1, 2], [0, 1, 3]])
 pushed = gss.push(9)
 
 assert {tuple(stack) for stack, _ in pushed.to_stacks()} == {
@@ -84,20 +84,20 @@ assert {tuple(stack) for stack, _ in pushed.to_stacks()} == {
 }
 ```
 
-Weighted accumulators must be immutable and hashable and must define `merge(other)`:
+Weighted values must be immutable and hashable and must define `join(other)`:
 
 ```python
 from dataclasses import dataclass
-from leveled_gss import LeveledGSS
+from weighted_gss import WeightedGSS
 
 @dataclass(frozen=True)
 class Bits:
     value: int
 
-    def merge(self, other: "Bits") -> "Bits":
+    def join(self, other: "Bits") -> "Bits":
         return Bits(self.value | other.value)
 
-gss = LeveledGSS.from_stacks([
+gss = WeightedGSS.from_stacks([
     ([0, 1], Bits(0b001)),
     ([0, 1], Bits(0b100)),
 ])
@@ -105,25 +105,28 @@ gss = LeveledGSS.from_stacks([
 assert gss.to_stacks() == [([0, 1], Bits(0b101))]
 ```
 
-The Python package is typed (`py.typed`) and exposes runtime docstrings through `help(LeveledGSS)`. See the [Python API guide](docs/python.md).
+The Python distribution is typed (`py.typed`) and provides runtime docstrings. See the [Python API guide](docs/python.md).
 
 ## Semantics
 
-- Operations are persistent: inputs remain valid and new values retain structural sharing where possible.
-- `push(value)` pushes onto every active path.
-- `popn(n)` discards paths shorter than `n`; a path of length exactly `n` becomes an empty stack.
-- Equivalent concrete stacks have their accumulators joined.
-- `to_stacks(limit)` is a bounded diagnostic operation and never silently truncates.
-- Structurally distinct graph paths can denote the same concrete stack. Consequently, `path_count_at_most` counts structural paths, not necessarily unique value sequences.
+- A value denotes a finite map from bottom-to-top stacks to weights.
+- Operations are persistent: inputs remain valid and results retain structural sharing where possible.
+- `push(value)` pushes onto every represented stack.
+- `popn(n)` discards stacks shorter than `n`; stacks of length exactly `n` become empty stacks.
+- When two represented stacks become identical, their weights are joined.
+- `to_stacks(limit)` is bounded and never silently truncates.
+- `path_count_at_most` counts structural graph paths, which can exceed the number of distinct stack keys.
 
 See [Semantics and invariants](docs/semantics.md) for the complete contract.
 
 ## Main types
 
-- `LeveledGSS<T, A>`: persistent shared collection of weighted stack paths.
-- `VirtualStack<T, A>`: mutable view of a deterministic stack prefix.
-- `Merge`: accumulator join at convergent paths.
-- `LeveledGSSSummary`: structural diagnostics without path materialization.
+- `WeightedGss<T, W>`: persistent compressed map from stacks to weights.
+- `Weight`: join operation for weights on coincident stacks.
+- `VirtualStack<T, W>`: mutable fast path for a deterministic stack prefix.
+- `WeightedGssSummary`: structural diagnostics without path materialization.
+
+The Python equivalents are `WeightedGSS` and `WeightedGSSSummary`.
 
 ## Testing
 
@@ -131,7 +134,7 @@ The repository tests:
 
 - the production regression suite inherited from GLRMask;
 - both segment backends (`vec` and `arc`);
-- 40,000 randomized operation steps against an explicit stack-set model;
+- 40,000 randomized operation steps against an explicit stack-to-weight map;
 - a compressed graph representing 262,144 stacks;
 - Rust examples and doctests;
 - Python weighted and unweighted APIs from built wheels and source distributions;
