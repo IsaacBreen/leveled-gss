@@ -4,25 +4,42 @@ build-backend = "maturin"
 
 [project]
 name = "leveled-gss"
-version = "0.1.0"
-description = "Python bindings for the leveled-gss persistent weighted graph-structured stack"
+dynamic = ["version"]
+description = "Persistent weighted graph-structured stacks with leveled sharing"
 readme = "README.md"
 requires-python = ">=3.8"
-license = { text = "MIT OR Apache-2.0" }
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
 authors = [{ name = "Isaac Breen", email = "mail@isaacbreen.com" }]
 keywords = ["graph-structured-stack", "glr", "parsing", "persistent-data-structure"]
 classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Programming Language :: Rust",
+  "Typing :: Typed",
   "Topic :: Software Development :: Libraries",
 ]
 
 [project.urls]
-Repository = "https://github.com/IsaacBreen/leveled-gss"
-Documentation = "https://docs.rs/leveled-gss"
+Homepage = "https://github.com/IsaacBreen/leveled-gss"
+Source = "https://github.com/IsaacBreen/leveled-gss"
+Issues = "https://github.com/IsaacBreen/leveled-gss/issues"
+Changelog = "https://github.com/IsaacBreen/leveled-gss/blob/main/CHANGELOG.md"
+"Rust API" = "https://docs.rs/leveled-gss"
+"Python API" = "https://github.com/IsaacBreen/leveled-gss/blob/main/docs/python.md"
 
 [tool.maturin]
 features = ["python"]
 python-source = "python"
 module-name = "leveled_gss._native"
 strip = true
+exclude = [".github/**", "python/tests/**", "tests/**", "examples/**", "RELEASING.md"]

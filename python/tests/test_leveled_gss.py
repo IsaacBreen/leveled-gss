@@ -4,7 +4,9 @@ import random
 import unittest
 from dataclasses import dataclass
 
+import leveled_gss
 from leveled_gss import LeveledGSS, LeveledGSSSummary
+
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,12 @@ def materialize(gss: LeveledGSS):
 
 
 class LeveledGSSTest(unittest.TestCase):
+    def test_version_typing_and_runtime_docs(self):
+        self.assertEqual(leveled_gss.__version__, "0.1.0")
+        self.assertIn("persistent", LeveledGSS.__doc__.lower())
+        self.assertIn("OverflowError", LeveledGSS.to_stacks.__doc__)
+        self.assertTrue(LeveledGSSSummary.__doc__)
+
     def test_unweighted_convenience_api(self):
         gss = LeveledGSS.from_unweighted([[1, 2], [1, 3]])
         self.assertEqual(

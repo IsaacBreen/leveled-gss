@@ -19,15 +19,6 @@ pub struct ArcArrayVec<T> {
 }
 
 impl<T> ArcArrayVec<T> {
-    /// Create an empty ArcArrayVec.
-    #[inline]
-    pub fn new() -> Self {
-        Self {
-            data: Arc::new(Vec::new()),
-            nw: 0,
-        }
-    }
-
     /// Get elements as a slice.
     #[inline]
     pub fn as_slice(&self) -> &[T] {
@@ -44,12 +35,6 @@ impl<T> ArcArrayVec<T> {
     #[inline]
     pub fn len(&self) -> usize {
         self.nw
-    }
-
-    /// Whether the view is empty.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.nw == 0
     }
 
     /// Last element (top of stack).
@@ -110,11 +95,6 @@ impl<T: Clone> ArcArrayVec<T> {
         v.extend_from_slice(&self.data[..self.nw]);
         v.extend_from_slice(&other.data[..other.nw]);
         Self::from_vec(v)
-    }
-
-    /// Convert to a Vec. O(n).
-    pub fn to_vec(&self) -> Vec<T> {
-        self.data[..self.nw].to_vec()
     }
 
     /// Try to push. Succeeds only if sole owner of backing data.
@@ -201,8 +181,5 @@ impl<T: Clone + Eq + Hash> StackVec<T> for ArcArrayVec<T> {
     }
     fn append(&self, other: &Self) -> Self {
         ArcArrayVec::append(self, other)
-    }
-    fn to_vec(&self) -> Vec<T> {
-        ArcArrayVec::to_vec(self)
     }
 }

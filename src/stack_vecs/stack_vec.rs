@@ -18,11 +18,6 @@ where
     /// Number of elements.
     fn len(&self) -> usize;
 
-    /// Whether empty.
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
     /// Last element (top of stack).
     fn last(&self) -> Option<&T>;
 
@@ -55,12 +50,4 @@ where
     fn try_append(&self, other: &Self) -> Option<Self> {
         Some(self.append(other))
     }
-
-    /// Maximum capacity. Returns `usize::MAX` if unbounded.
-    fn capacity(&self) -> usize {
-        usize::MAX
-    }
-
-    /// Convert to a Vec. O(n).
-    fn to_vec(&self) -> Vec<T>;
 }

@@ -13,12 +13,6 @@ impl<T: Clone + Eq + Hash> VecStackVec<T> {
     pub fn iter(&self) -> std::slice::Iter<'_, T> {
         self.0.iter()
     }
-
-    /// Get elements as a slice.
-    #[inline]
-    pub fn as_slice(&self) -> &[T] {
-        self.0.as_slice()
-    }
 }
 
 impl<T: PartialEq> PartialEq for VecStackVec<T> {
@@ -83,10 +77,5 @@ impl<T: Clone + Eq + Hash> StackVec<T> for VecStackVec<T> {
         v.extend_from_slice(&self.0);
         v.extend_from_slice(&other.0);
         Self(v)
-    }
-
-    #[inline]
-    fn to_vec(&self) -> Vec<T> {
-        self.0.clone()
     }
 }

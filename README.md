@@ -1,19 +1,41 @@
 # leveled-gss
 
-A persistent, weighted graph-structured stack with leveled sharing, written in Rust with Python bindings.
+[![CI](https://github.com/IsaacBreen/leveled-gss/actions/workflows/ci.yml/badge.svg)](https://github.com/IsaacBreen/leveled-gss/actions/workflows/ci.yml)
 
-The crate represents many stacks in one immutable graph. Common suffixes are shared, branching and merging preserve path-specific accumulators, and deterministic prefixes can be manipulated through a mutable `VirtualStack` fast path. The implementation was extracted from the data structure used by [GLRMask](https://github.com/IsaacBreen/glrmask).
+A persistent, weighted graph-structured stack with leveled sharing, implemented in Rust with Python bindings.
 
-The API is experimental. The standalone crate preserves the production representation while giving ordinary stack operations ordinary semantics: `popn(n)` discards paths shorter than `n`.
+`leveled-gss` represents a set of stacks as one immutable graph. Common suffixes are shared; branching and merging preserve path-specific accumulators; and deterministic prefixes can be manipulated through a mutable `VirtualStack` fast path. The implementation was extracted from the data structure used by [GLRMask](https://github.com/IsaacBreen/glrmask).
 
-## Rust
+The API is experimental and follows semantic versioning. Version 0.1 is suitable for evaluation and integration, but may receive breaking API changes in later 0.x releases.
 
-Until the crate is published on crates.io:
+## Installation
+
+Rust:
+
+```bash
+cargo add leveled-gss
+```
+
+Python 3.8 or later:
+
+```bash
+python -m pip install leveled-gss
+```
+
+Install the unreleased Git head with either Cargo or pip:
 
 ```toml
 [dependencies]
 leveled-gss = { git = "https://github.com/IsaacBreen/leveled-gss" }
 ```
+
+```bash
+python -m pip install "git+https://github.com/IsaacBreen/leveled-gss"
+```
+
+## Rust example
+
+Stacks are passed bottom-to-top.
 
 ```rust
 use leveled_gss::{LeveledGSS, Merge};
@@ -27,25 +49,26 @@ impl Merge for Cost {
     }
 }
 
-let a = LeveledGSS::from_single_stack(vec![0_u32, 1, 2], Cost(7));
-let b = LeveledGSS::from_single_stack(vec![0_u32, 1, 3], Cost(4));
-let stacks = a.merge(&b).push(9);
+let left = LeveledGSS::from_single_stack(vec![0_u32, 1, 2], Cost(7));
+let right = LeveledGSS::from_single_stack(vec![0_u32, 1, 3], Cost(4));
+let gss = left.merge(&right).push(9);
 
-assert_eq!(stacks.path_count_at_most(10), 2);
-assert_eq!(stacks.peek(), [9].into_iter().collect());
+let mut stacks = gss.to_stacks(8).expect("materialization limit exceeded");
+stacks.sort_by(|a, b| a.0.cmp(&b.0));
+assert_eq!(
+    stacks,
+    vec![
+        (vec![0, 1, 2, 9], Cost(7)),
+        (vec![0, 1, 3, 9], Cost(4)),
+    ],
+);
 ```
 
-`Merge` is a join operation, not an arbitrary reduction. It should be associative, commutative, and idempotent. Examples include set union, bitwise OR, minimum, and maximum.
+`Merge` is a join operation, not an arbitrary reduction. It must be associative, commutative, and idempotent. Set union, bitwise OR, minimum, and maximum are valid examples. Addition generally is not.
 
-## Python
+The Rust API reference is generated on [docs.rs](https://docs.rs/leveled-gss).
 
-The Python extension is built with PyO3 and supports Python 3.8 or later through the stable ABI.
-
-Install directly from GitHub:
-
-```bash
-python -m pip install "git+https://github.com/IsaacBreen/leveled-gss"
-```
+## Python example
 
 Unweighted use stores `None` as the accumulator:
 
@@ -61,7 +84,7 @@ assert {tuple(stack) for stack, _ in pushed.to_stacks()} == {
 }
 ```
 
-Weighted accumulators must be hashable and define `merge(other)`:
+Weighted accumulators must be immutable and hashable and must define `merge(other)`:
 
 ```python
 from dataclasses import dataclass
@@ -82,38 +105,45 @@ gss = LeveledGSS.from_stacks([
 assert gss.to_stacks() == [([0, 1], Bits(0b101))]
 ```
 
-Python exposes construction, bounded materialization, push, pop, isolation, merge, fuse, top inspection, accumulator reduction, path counting, and structural summaries.
+The Python package is typed (`py.typed`) and exposes runtime docstrings through `help(LeveledGSS)`. See the [Python API guide](docs/python.md).
+
+## Semantics
+
+- Operations are persistent: inputs remain valid and new values retain structural sharing where possible.
+- `push(value)` pushes onto every active path.
+- `popn(n)` discards paths shorter than `n`; a path of length exactly `n` becomes an empty stack.
+- Equivalent concrete stacks have their accumulators joined.
+- `to_stacks(limit)` is a bounded diagnostic operation and never silently truncates.
+- Structurally distinct graph paths can denote the same concrete stack. Consequently, `path_count_at_most` counts structural paths, not necessarily unique value sequences.
+
+See [Semantics and invariants](docs/semantics.md) for the complete contract.
 
 ## Main types
 
 - `LeveledGSS<T, A>`: persistent shared collection of weighted stack paths.
 - `VirtualStack<T, A>`: mutable view of a deterministic stack prefix.
 - `Merge`: accumulator join at convergent paths.
-- `LeveledGSSSummary`: structural diagnostics without enumerating all paths.
-
-`LeveledGSS::to_stacks` materializes graph paths only up to an explicit limit. It is useful for tests and inspection, but it is deliberately not the main execution model. Structurally distinct graph paths can denote the same concrete stack, so `path_count_at_most` is a graph-path count rather than a unique-stack count.
+- `LeveledGSSSummary`: structural diagnostics without path materialization.
 
 ## Testing
 
 The repository tests:
 
-- the original production regression suite;
+- the production regression suite inherited from GLRMask;
 - both segment backends (`vec` and `arc`);
-- 40,000 randomized operation sequences against an explicit stack-set model;
+- 40,000 randomized operation steps against an explicit stack-set model;
 - a compressed graph representing 262,144 stacks;
 - Rust examples and doctests;
-- Python weighted and unweighted APIs from a built wheel;
+- Python weighted and unweighted APIs from built wheels and source distributions;
+- package metadata and publication dry runs;
 - Linux, macOS, and Windows in GitHub Actions.
 
 ## Provenance
 
-The initial standalone extraction tracks `glrmask` commit `58c24ff44e3a796172a0ea532b3d66affa188d9e`. The standalone crate changes the inherited parser-floor underflow behavior so `popn` follows conventional stack semantics.
+The initial standalone extraction tracks `glrmask` commit `58c24ff44e3a796172a0ea532b3d66affa188d9e`. The standalone crate changes the inherited parser-floor underflow behavior so `popn` follows ordinary stack semantics.
 
-## License
+## Contributing and license
 
-Licensed under either of:
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development instructions.
 
-- Apache License, Version 2.0
-- MIT License
-
-at your option.
+Licensed under either the Apache License, Version 2.0 or the MIT License, at your option.

@@ -89,12 +89,6 @@ macro_rules! define_dyn_stack_vec {
                 match self { $( Self::$variant(v) => v.try_harder_push(val), )+ }
             }
 
-            pub fn append(&self, other: &Self) -> Self {
-                match (self, other) {
-                    $( (Self::$variant(a), Self::$variant(b)) => Self::$variant(a.append(b)), )+
-                    _ => panic!("DynStackVec: variant mismatch in append"),
-                }
-            }
 
             pub fn try_append(&self, other: &Self) -> Option<Self> {
                 match (self, other) {
@@ -103,14 +97,7 @@ macro_rules! define_dyn_stack_vec {
                 }
             }
 
-            #[inline]
-            pub fn capacity(&self) -> usize {
-                match self { $( Self::$variant(v) => v.capacity(), )+ }
-            }
 
-            pub fn to_vec(&self) -> Vec<T> {
-                match self { $( Self::$variant(v) => v.to_vec(), )+ }
-            }
 
             /// Iterate from bottom to top.
             pub fn iter(&self) -> DynIter<'_, T> {

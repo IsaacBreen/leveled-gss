@@ -28,12 +28,8 @@
 //! [`LeveledGSS::to_stacks`] is intended for diagnostics and tests. Production
 //! algorithms should usually operate on the shared representation directly.
 
-#![cfg_attr(not(feature = "python"), forbid(unsafe_code))]
-#![cfg_attr(
-    feature = "python",
-    allow(unsafe_op_in_unsafe_fn, non_local_definitions)
-)]
-#![allow(dead_code)]
+#![forbid(unsafe_code)]
+#![deny(missing_docs)]
 #![allow(clippy::large_enum_variant, clippy::type_complexity)]
 
 mod leveled_gss;

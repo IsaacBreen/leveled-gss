@@ -1,3 +1,5 @@
+__version__: str
+
 from typing import Any, Iterable, Optional, Sequence
 
 class LeveledGSSSummary:

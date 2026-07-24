@@ -1,5 +1,6 @@
 use super::stack_vecs::dispatch::DynStackVec;
 use im::{HashMap as IHashMap, OrdMap};
+#[cfg(test)]
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::{SmallVec, smallvec};
 use std::collections::{HashMap as StdHashMap, HashSet, VecDeque};
@@ -306,13 +307,6 @@ impl<V: Clone> CompactOrdMap<V> {
         }
     }
 
-    fn keys(&self) -> CompactOrdMapKeys<'_, V> {
-        match self {
-            CompactOrdMap::Inline(sv) => CompactOrdMapKeys::Inline(sv.iter()),
-            CompactOrdMap::Large(m) => CompactOrdMapKeys::Large(m.keys()),
-        }
-    }
-
     fn get_max(&self) -> Option<(&u32, &V)> {
         match self {
             CompactOrdMap::Inline(sv) => sv.iter().max_by_key(|(k, _)| *k).map(|(k, v)| (k, v)),
@@ -384,27 +378,6 @@ impl<V: Clone> std::iter::FromIterator<(u32, V)> for CompactOrdMap<V> {
             map.insert(k, v);
         }
         map
-    }
-}
-
-enum CompactOrdMapKeys<'a, V> {
-    Inline(std::slice::Iter<'a, (u32, V)>),
-    Large(im::ordmap::Keys<'a, u32, V>),
-}
-
-impl<'a, V> Iterator for CompactOrdMapKeys<'a, V> {
-    type Item = &'a u32;
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            CompactOrdMapKeys::Inline(it) => it.next().map(|(k, _)| k),
-            CompactOrdMapKeys::Large(it) => it.next(),
-        }
-    }
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match self {
-            CompactOrdMapKeys::Inline(it) => it.size_hint(),
-            CompactOrdMapKeys::Large(it) => it.size_hint(),
-        }
     }
 }
 
@@ -499,41 +472,6 @@ impl<T: Clone + Eq + Hash> Lower<T> {
         match self {
             Lower::Segment(seg) => seg.segments_len,
             Lower::General { .. } => 0,
-        }
-    }
-
-    /// If this node is a deterministic chain link (Segment or single-child
-    /// General with one edge), return the next node below it plus the number
-    /// of stack values represented at this node.
-    #[inline]
-    fn chain_step(&self) -> Option<(&Arc<Lower<T>>, usize)> {
-        match self {
-            Lower::Segment(seg) => Some((&seg.next, seg.values.len())),
-            Lower::General { children, .. } if children.len() == 1 => {
-                let ordmap = children.values().next().unwrap();
-                if ordmap.len() == 1 {
-                    Some((ordmap.iter().next().unwrap().1, 1))
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-
-    /// Append the values represented by this deterministic chain node,
-    /// top-first, into `out`.
-    #[inline]
-    fn append_chain_values_top_first(&self, out: &mut SmallVec<[T; 16]>) {
-        match self {
-            Lower::Segment(seg) => {
-                for value in seg.values.iter().rev() {
-                    out.push(value.clone());
-                }
-            }
-            Lower::General { children, .. } => {
-                out.push(children.keys().next().unwrap().clone());
-            }
         }
     }
 
@@ -775,17 +713,31 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> Upper<T, A> {
     }
 }
 
+/// Structural statistics for a [`LeveledGSS`].
+///
+/// The counts describe the shared graph, not a fully materialized set of
+/// concrete stacks.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LeveledGSSSummary {
+    /// Number of distinct values visible at the top frontier.
     pub top_values_count: usize,
+    /// Number of accumulator-carrying branch nodes.
     pub upperbranch_nodes: usize,
+    /// Number of interface nodes between accumulator and shared-stack layers.
     pub interface_nodes: usize,
+    /// Total number of nodes in the lower shared-stack layer.
     pub lower_nodes: usize,
+    /// Number of branching lower-layer nodes.
     pub lower_general_nodes: usize,
+    /// Number of compact linear segment nodes.
     pub lower_segment_nodes: usize,
+    /// Total number of unique graph nodes across all layers.
     pub total_unique_nodes: usize,
+    /// Total number of graph edges.
     pub total_edges: usize,
+    /// Number of accumulator storage locations in the upper layer.
     pub accumulator_instances: usize,
+    /// Maximum represented stack depth.
     pub max_depth: u32,
 }
 
@@ -1485,6 +1437,7 @@ where
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct SemanticTrieNode<T> {
     empty: bool,
@@ -1492,11 +1445,13 @@ struct SemanticTrieNode<T> {
     max_depth: u32,
 }
 
+#[cfg(test)]
 enum SemanticPendingNode<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> {
     Lower(Arc<Lower<T>>),
     Upper(Arc<Upper<T, A>>),
 }
 
+#[cfg(test)]
 impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> SemanticPendingNode<T, A> {
     fn sort_key(&self) -> (u32, u8) {
         match self {
@@ -1506,6 +1461,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> SemanticPendingNode<T, 
     }
 }
 
+#[cfg(test)]
 /// Canonicalizes the finite stack language represented by one or more GSSes.
 ///
 /// Keys are exact within this interner: Segment boundaries, one-child General
@@ -1521,6 +1477,7 @@ pub(crate) struct GssSemanticKeyInterner<T: Clone + Eq + Hash + Ord, A: Merge + 
     union_memo: FxHashMap<(u32, u32), u32>,
 }
 
+#[cfg(test)]
 impl<T: Clone + Eq + Hash + Ord, A: Merge + Clone + Eq + Hash> GssSemanticKeyInterner<T, A> {
     pub(crate) fn new() -> Self {
         let empty_language = SemanticTrieNode {
@@ -1840,6 +1797,11 @@ impl<T: Clone + Eq + Hash + Ord, A: Merge + Clone + Eq + Hash> GssSemanticKeyInt
     }
 }
 
+/// A persistent set of stack paths with shared structure and path accumulators.
+///
+/// `T` is the stack value type and `A` is the accumulator attached to paths.
+/// Operations return new values and retain sharing with their inputs where
+/// possible.
 #[derive(Clone)]
 pub struct LeveledGSS<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> {
     inner: Arc<Upper<T, A>>,
@@ -2055,6 +2017,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> VirtualStack<T, A> {
 
     /// Whether the visible virtual-stack prefix is empty.
     #[inline]
+    /// Return whether the GSS contains no active stack paths.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -2087,6 +2050,10 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> VirtualStack<T, A> {
         }
     }
 
+    /// Materialize this virtual stack after removing `n` values.
+    ///
+    /// If the pop crosses the virtualized linear prefix, the remaining work is
+    /// completed using the branch-aware GSS representation.
     pub fn into_gss_after_popping(mut self, n: usize) -> LeveledGSS<T, A> {
         self.flush_pending();
         let remaining = self.pop(n);
@@ -2098,6 +2065,10 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> VirtualStack<T, A> {
         }
     }
 
+    /// Pop a shared prefix and create one branch for each replacement slice.
+    ///
+    /// Returns `None` when the requested pop crosses the virtual stack's
+    /// branch-aware floor.
     pub fn into_gss_after_popping_and_pushing_branches<'a, I>(
         mut self,
         n: usize,
@@ -2149,6 +2120,10 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> VirtualStack<T, A> {
         })
     }
 
+    /// Pop a shared prefix and create one single-value branch per target.
+    ///
+    /// Duplicate targets are coalesced. Returns `None` when the requested pop
+    /// crosses the virtual stack's branch-aware floor.
     pub fn into_gss_after_popping_and_pushing_single_branches<'a, I>(
         mut self,
         n: usize,
@@ -2211,25 +2186,27 @@ impl<T: Clone + Eq + Hash + std::fmt::Debug, A: Merge + Clone + Eq + Hash + std:
 }
 
 impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
+    /// Return whether two GSS values share the exact same root allocation.
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
 
+    /// Return an identity key for the current root allocation.
+    ///
+    /// The key is process-local and remains meaningful only while the root is
+    /// alive. It is intended for memoization, not persistence.
     pub fn ptr_key(&self) -> usize {
         Arc::as_ptr(&self.inner) as usize
     }
 
-    pub(crate) fn single_interface_lower_id(&self) -> Option<usize> {
-        match &*self.inner {
-            Upper::Interface(i) => Some(lower_node_id(&i.inner)),
-            Upper::Branch(_) => None,
-        }
-    }
-
+    /// Construct a GSS containing no active stack paths.
     pub fn empty() -> Self {
         empty_upper()
     }
 
+    /// Construct a GSS from explicit bottom-to-top stacks and accumulators.
+    ///
+    /// Duplicate concrete stacks are combined with [`Merge::merge`].
     pub fn from_stacks(stacks: &[(Vec<T>, A)]) -> Self {
         let mut canon: StdHashMap<Vec<T>, A> = StdHashMap::new();
         for (vals, acc) in stacks {
@@ -2373,6 +2350,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         }
     }
 
+    /// Construct a GSS containing one bottom-to-top stack.
     pub fn from_single_stack(values: Vec<T>, acc: A) -> Self {
         let floor = new_lower(CompactMap::new(), true);
         let inner = if values.is_empty() {
@@ -2399,6 +2377,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         complete.then_some(stacks)
     }
 
+    #[cfg(test)]
     /// Visit concrete stack lengths without materializing stack values.
     ///
     /// Returns `false` as soon as more than `limit` paths are represented. This
@@ -2655,6 +2634,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         dfs_upper(&self.inner, &mut pref, limit, &mut emitted, &mut f)
     }
 
+    #[cfg(test)]
     /// Compare the concrete stack/accumulator set represented by two GSSes,
     /// independent of their internal sharing or node layout.
     ///
@@ -2748,6 +2728,10 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         }
     }
 
+    /// Apply one shared pop followed by several replacement push sequences.
+    ///
+    /// This optimized operation succeeds only when the active state has a
+    /// suitable deterministic virtual-stack prefix.
     pub fn apply_shared_pop_push_branches<'a, I>(&self, pop: usize, pushes: I) -> Option<Self>
     where
         I: IntoIterator<Item = &'a [T]>,
@@ -2757,6 +2741,10 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
             .into_gss_after_popping_and_pushing_branches(pop, pushes)
     }
 
+    /// Apply one shared pop followed by several single-value pushes.
+    ///
+    /// This optimized operation succeeds only when the active state has a
+    /// suitable deterministic virtual-stack prefix.
     pub fn apply_shared_pop_push_single_branches<'a, I>(
         &self,
         pop: usize,
@@ -2770,6 +2758,11 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
             .into_gss_after_popping_and_pushing_single_branches(pop, targets)
     }
 
+    /// Apply guarded pop-and-push effects to a single concrete path.
+    ///
+    /// Each guard identifies values that must occur at a given depth. Returns
+    /// `None` when the GSS is not a single path, exceeds the materialization
+    /// bound, or fails every guard.
     pub fn apply_guarded_stack_effects_to_single_concrete_path<'a, I, G>(
         &self,
         effects: I,
@@ -2828,6 +2821,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         }
     }
 
+    /// Push `value` onto every active stack path.
     pub fn push(&self, value: T) -> Self {
         if self.is_empty() {
             return self.clone();
@@ -3104,6 +3098,11 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         })
     }
 
+    /// Select top values and push their corresponding target values.
+    ///
+    /// Each tuple is `(source, target, replace_source)`. When
+    /// `replace_source` is false, `target` is pushed above `source`; when true,
+    /// the source top is replaced.
     pub fn apply_top_pure_shifts<I>(&self, shifts: I) -> Self
     where
         I: IntoIterator<Item = (T, T, bool)>,
@@ -3219,6 +3218,10 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         self.merge(&base.push(value))
     }
 
+    /// Merge a virtual stack whose accumulator equals this GSS's accumulator.
+    ///
+    /// This method is optimized for parser workloads and may fall back to a
+    /// normal structural merge.
     pub fn absorb_vstack_same_acc(mut self, stack: &VirtualStack<T, A>) -> Self {
         let mut stack = stack.clone();
         stack.flush_pending();
@@ -3268,6 +3271,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         self.merge(&stack.into_gss())
     }
 
+    /// Owned variant of [`Self::absorb_vstack_same_acc`].
     pub fn absorb_vstack_same_acc_owned(mut self, mut stack: VirtualStack<T, A>) -> Self {
         stack.flush_pending();
 
@@ -3536,6 +3540,9 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         }
     }
 
+    /// Pop one value from every non-empty stack path.
+    ///
+    /// Empty paths and paths that underflow are discarded.
     pub fn pop(&self) -> Self {
         self.popn(1)
     }
@@ -3704,6 +3711,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         })
     }
 
+    /// Return whether the GSS contains no active stack paths.
     pub fn is_empty(&self) -> bool {
         match &*self.inner {
             Upper::Branch(b) => b.children.is_empty() && b.empty.is_none(),
@@ -3711,10 +3719,12 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         }
     }
 
+    /// Return the maximum represented stack depth.
     pub fn max_depth(&self) -> u32 {
         self.inner.max_depth()
     }
 
+    /// Compute structural statistics without materializing concrete stacks.
     pub fn summary(&self) -> LeveledGSSSummary {
         let mut visited_upperbranch: HashSet<usize> = HashSet::new();
         let mut visited_interface: HashSet<usize> = HashSet::new();
@@ -3829,6 +3839,9 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         }
     }
 
+    /// Keep only paths whose top equals `value`.
+    ///
+    /// Passing `None` keeps only empty stack paths.
     pub fn isolate(&self, value: Option<T>) -> Self {
         if let Some(ref v) = value {
             match &*self.inner {
@@ -3927,6 +3940,9 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         LeveledGSS { inner: new_inner }
     }
 
+    /// Transform every distinct accumulator while preserving stack paths.
+    ///
+    /// Equal input accumulators are transformed once and reuse the result.
     pub fn apply<B, F>(&self, mut func: F) -> LeveledGSS<T, B>
     where
         B: Merge + Clone + Eq + Hash,
@@ -4011,6 +4027,9 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
             .collect()
     }
 
+    /// Transform accumulators and discard paths mapped to `None`.
+    ///
+    /// Equal input accumulators are transformed once and reuse the result.
     pub fn apply_and_prune<B, M>(&self, mut mutator: M) -> LeveledGSS<T, B>
     where
         B: Merge + Clone + Eq + Hash,
@@ -4361,6 +4380,9 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         res_inner_opt.map_or_else(Self::empty, |inner| Self { inner })
     }
 
+    /// Return the union of two GSS values.
+    ///
+    /// Equivalent paths have their accumulators joined with [`Merge::merge`].
     pub fn merge(&self, other: &Self) -> Self {
         if self.is_empty() {
             return other.clone();
@@ -4374,6 +4396,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         }
     }
 
+    /// Merge an iterator of GSS values using a balanced reduction.
     pub fn merge_many(gsses: impl IntoIterator<Item = Self>) -> Self {
         let mut items: Vec<Self> = gsses.into_iter().collect();
         if items.is_empty() {
@@ -4397,6 +4420,10 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         items.into_iter().next().unwrap()
     }
 
+    /// Canonicalize multi-depth alternatives over the requested number of levels.
+    ///
+    /// `None` fuses all levels; non-positive values are a no-op. This is an
+    /// advanced structural normalization operation.
     pub fn fuse(&self, levels: Option<isize>) -> Self {
         if let Some(l) = levels {
             if l <= 0 {
@@ -4598,10 +4625,15 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         }
     }
 
+    /// Return the set of values visible at the top of non-empty paths.
     pub fn peek(&self) -> HashSet<T> {
         self.inner.children_keys().into_iter().collect()
     }
 
+    /// Return top values in the representation's iteration order.
+    ///
+    /// Unlike [`Self::peek`], this avoids hashing and is optimized for small
+    /// frontiers. The order is not part of the API contract.
     pub fn peek_values(&self) -> SmallVec<[T; 8]> {
         self.inner.children_keys()
     }
@@ -4626,10 +4658,14 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         }
     }
 
+    /// Return the sole top value when exactly one distinct top is represented.
+    ///
+    /// This may still return a value when an empty path is also represented.
     pub fn single_top_value(&self) -> Option<T> {
         self.inner.single_child_key()
     }
 
+    /// Return the sole top value only when no empty path is represented.
     pub fn single_exclusive_top_value(&self) -> Option<T> {
         self.inner.single_child_key_without_empty()
     }
@@ -4760,6 +4796,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         count_upper(&self.inner, limit, &mut memo_upper, &mut memo_lower)
     }
 
+    /// Return whether at most one structural graph path is represented.
     pub fn is_single_path(&self) -> bool {
         self.path_count_at_most(2) <= 1
     }
@@ -4779,6 +4816,9 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         Some((stack, acc))
     }
 
+    /// Write the sole stack path to `out` in top-first order and return its accumulator.
+    ///
+    /// Returns `None` when zero or multiple structural paths are represented.
     pub fn single_path_top_first_and_acc(&self, out: &mut SmallVec<[T; 16]>) -> Option<A> {
         fn push_lower_path<T>(node: &Arc<Lower<T>>, out: &mut SmallVec<[T; 16]>) -> bool
         where
@@ -4848,6 +4888,9 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         }
     }
 
+    /// Join all distinct stored accumulators.
+    ///
+    /// Returns `None` when there are no active paths.
     pub fn reduce_acc(&self) -> Option<A> {
         let mut unique: HashSet<A> = HashSet::new();
         let mut queue: VecDeque<Arc<Upper<T, A>>> = VecDeque::new();
@@ -4979,6 +5022,9 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         check(&self.inner, &pred)
     }
 
+    /// Keep only stack paths whose length is at most `max_len`.
+    ///
+    /// A negative bound returns an empty GSS.
     pub fn truncate(&self, max_len: isize) -> Self {
         if max_len < 0 {
             return Self::empty();
@@ -4990,237 +5036,6 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         let new_inner = truncate_upper(&self.inner, 0, max_len, &mut memo_upper, &mut memo_lower);
 
         new_inner.map_or_else(Self::empty, |inner| Self { inner })
-    }
-
-    fn get_node_info_lower(node: &Arc<Lower<T>>) -> String
-    where
-        T: std::fmt::Debug,
-    {
-        let mut info = format!(
-            "Lower @ {:#x} (MaxDepth: {})",
-            Arc::as_ptr(node) as usize,
-            node.max_depth()
-        );
-        if node.empty() {
-            info.push_str(" [TERMINAL]");
-        }
-        info
-    }
-
-    fn get_node_info_upper(node: &Arc<Upper<T, A>>) -> String
-    where
-        T: std::fmt::Debug,
-        A: std::fmt::Debug,
-    {
-        match &**node {
-            Upper::Branch(b) => {
-                let mut info = format!(
-                    "UpperBranch @ {:#x} (MaxDepth: {})",
-                    Arc::as_ptr(b) as usize,
-                    b.max_depth
-                );
-                if let Some(e) = &b.empty {
-                    info.push_str(&format!(" [TERMINAL empty: {:?}]", e));
-                }
-                info
-            }
-            Upper::Interface(i) => {
-                let mut info = format!(
-                    "Interface @ {:#x} -> Lower @ {:#x} (MaxDepth: {}) | acc: {:?}",
-                    Arc::as_ptr(i) as usize,
-                    Arc::as_ptr(&i.inner) as usize,
-                    node.max_depth(),
-                    i.acc
-                );
-                if i.inner.empty() {
-                    info.push_str(&format!(" [TERMINAL via acc: {:?}]", i.acc));
-                }
-                info
-            }
-        }
-    }
-
-    fn format_recursive_lower(
-        node: &Arc<Lower<T>>,
-        current_prefix: &str,
-        printed_nodes: &mut HashSet<usize>,
-        output_lines: &mut Vec<String>,
-    ) where
-        T: std::fmt::Debug,
-    {
-        printed_nodes.insert(Arc::as_ptr(node) as usize);
-
-        let mut children_to_print = Vec::new();
-        let node_children = node.children();
-        let mut sorted_values: Vec<_> = node_children.keys().collect();
-        sorted_values.sort_by_key(|v| format!("{:?}", v));
-
-        for v in sorted_values {
-            if let Some(kids_at_depths) = node_children.get(v) {
-                for (depth, child) in kids_at_depths.iter() {
-                    let label = format!("Edge {:?} (d={})", v, depth);
-                    children_to_print.push((label, child.clone()));
-                }
-            }
-        }
-
-        let num_children = children_to_print.len();
-        for (i, (label, child)) in children_to_print.into_iter().enumerate() {
-            let is_last = i == num_children - 1;
-            let prefix_char = if is_last { "└── " } else { "├── " };
-            let child_id = Arc::as_ptr(&child) as usize;
-
-            if printed_nodes.contains(&child_id) {
-                let line = format!(
-                    "{}{}{} -> Ref to Node @ {:#x}",
-                    current_prefix, prefix_char, label, child_id
-                );
-                output_lines.push(line);
-            } else {
-                let line = format!(
-                    "{}{}{} -> {}",
-                    current_prefix,
-                    prefix_char,
-                    label,
-                    Self::get_node_info_lower(&child)
-                );
-                output_lines.push(line);
-
-                let child_prefix = format!(
-                    "{}{}",
-                    current_prefix,
-                    if is_last { "    " } else { "│   " }
-                );
-                Self::format_recursive_lower(&child, &child_prefix, printed_nodes, output_lines);
-            }
-        }
-    }
-
-    fn format_recursive_upper(
-        node: &Arc<Upper<T, A>>,
-        current_prefix: &str,
-        printed_nodes: &mut HashSet<usize>,
-        output_lines: &mut Vec<String>,
-        upper_only: bool,
-    ) where
-        T: std::fmt::Debug,
-        A: std::fmt::Debug,
-    {
-        printed_nodes.insert(Arc::as_ptr(node) as usize);
-
-        match &**node {
-            Upper::Branch(b) => {
-                let mut children_to_print = Vec::new();
-                let mut sorted_values: Vec<_> = b.children.keys().collect();
-                sorted_values.sort_by_key(|v| format!("{:?}", v));
-
-                for v in sorted_values {
-                    if let Some(kids_at_depths) = b.children.get(v) {
-                        for (depth, child) in kids_at_depths.iter() {
-                            let label = format!("Edge {:?} (d={})", v, depth);
-                            children_to_print.push((label, child.clone()));
-                        }
-                    }
-                }
-
-                let num_children = children_to_print.len();
-                for (i, (label, child)) in children_to_print.into_iter().enumerate() {
-                    let is_last = i == num_children - 1;
-                    let prefix_char = if is_last { "└── " } else { "├── " };
-                    let child_id = Arc::as_ptr(&child) as usize;
-
-                    if printed_nodes.contains(&child_id) {
-                        let line = format!(
-                            "{}{}{} -> Ref to Node @ {:#x}",
-                            current_prefix, prefix_char, label, child_id
-                        );
-                        output_lines.push(line);
-                    } else {
-                        let line = format!(
-                            "{}{}{} -> {}",
-                            current_prefix,
-                            prefix_char,
-                            label,
-                            Self::get_node_info_upper(&child)
-                        );
-                        output_lines.push(line);
-
-                        let child_prefix = format!(
-                            "{}{}",
-                            current_prefix,
-                            if is_last { "    " } else { "│   " }
-                        );
-                        Self::format_recursive_upper(
-                            &child,
-                            &child_prefix,
-                            printed_nodes,
-                            output_lines,
-                            upper_only,
-                        );
-                    }
-                }
-            }
-            Upper::Interface(i) => {
-                if upper_only && !i.inner.children().is_empty() {
-                    let prefix_char = "└── ";
-                    let num_lower_edges: usize =
-                        i.inner.children().values().map(|kids| kids.len()).sum();
-                    let line = format!("{}[{} lower edges omitted]", prefix_char, num_lower_edges);
-                    output_lines.push(format!("{}{}", current_prefix, line));
-                    return;
-                }
-
-                let mut children_to_print = Vec::new();
-                let iface_children = i.inner.children();
-                let mut sorted_values: Vec<_> = iface_children.keys().collect();
-                sorted_values.sort_by_key(|v| format!("{:?}", v));
-
-                for v in sorted_values {
-                    if let Some(kids_at_depths) = iface_children.get(v) {
-                        for (depth, child) in kids_at_depths.iter() {
-                            let label = format!("Edge {:?} (d={})", v, depth);
-                            children_to_print.push((label, child.clone()));
-                        }
-                    }
-                }
-
-                let num_children = children_to_print.len();
-                for (i_idx, (label, child)) in children_to_print.into_iter().enumerate() {
-                    let is_last = i_idx == num_children - 1;
-                    let prefix_char = if is_last { "└── " } else { "├── " };
-                    let child_id = Arc::as_ptr(&child) as usize;
-
-                    if printed_nodes.contains(&child_id) {
-                        let line = format!(
-                            "{}{}{} -> Ref to Node @ {:#x}",
-                            current_prefix, prefix_char, label, child_id
-                        );
-                        output_lines.push(line);
-                    } else {
-                        let line = format!(
-                            "{}{}{} -> {}",
-                            current_prefix,
-                            prefix_char,
-                            label,
-                            Self::get_node_info_lower(&child)
-                        );
-                        output_lines.push(line);
-
-                        let child_prefix = format!(
-                            "{}{}",
-                            current_prefix,
-                            if is_last { "    " } else { "│   " }
-                        );
-                        Self::format_recursive_lower(
-                            &child,
-                            &child_prefix,
-                            printed_nodes,
-                            output_lines,
-                        );
-                    }
-                }
-            }
-        }
     }
 }
 
