@@ -1,0 +1,20 @@
+[package]
+name = "leveled-gss"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A persistent weighted graph-structured stack with leveled sharing"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/IsaacBreen/leveled-gss"
+documentation = "https://docs.rs/leveled-gss"
+keywords = ["gss", "glr", "parser", "persistent", "graph"]
+categories = ["algorithms", "data-structures", "parsing"]
+
+[dependencies]
+im = "15"
+rustc-hash = "1"
+smallvec = "1"
+
+[dev-dependencies]
+pretty_assertions = "1"
