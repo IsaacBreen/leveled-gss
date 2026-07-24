@@ -11,10 +11,22 @@ documentation = "https://docs.rs/leveled-gss"
 keywords = ["gss", "glr", "parser", "persistent", "graph"]
 categories = ["algorithms", "data-structures", "parsing"]
 
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+python = ["dep:pyo3"]
+
 [dependencies]
 im = "15"
 rustc-hash = "1"
 smallvec = "1"
+pyo3 = { version = "0.20.3", optional = true, features = ["extension-module", "abi3-py38", "generate-import-lib"] }
 
 [dev-dependencies]
 pretty_assertions = "1"
+rand = "0.8"
+
+[package.metadata.docs.rs]
+features = []

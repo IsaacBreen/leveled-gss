@@ -1,0 +1,28 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "leveled-gss"
+version = "0.1.0"
+description = "Python bindings for the leveled-gss persistent weighted graph-structured stack"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT OR Apache-2.0" }
+authors = [{ name = "Isaac Breen", email = "mail@isaacbreen.com" }]
+keywords = ["graph-structured-stack", "glr", "parsing", "persistent-data-structure"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Rust",
+  "Topic :: Software Development :: Libraries",
+]
+
+[project.urls]
+Repository = "https://github.com/IsaacBreen/leveled-gss"
+Documentation = "https://docs.rs/leveled-gss"
+
+[tool.maturin]
+features = ["python"]
+python-source = "python"
+module-name = "leveled_gss._native"
+strip = true

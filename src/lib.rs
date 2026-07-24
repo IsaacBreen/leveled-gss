@@ -28,11 +28,18 @@
 //! [`LeveledGSS::to_stacks`] is intended for diagnostics and tests. Production
 //! algorithms should usually operate on the shared representation directly.
 
-#![forbid(unsafe_code)]
+#![cfg_attr(not(feature = "python"), forbid(unsafe_code))]
+#![cfg_attr(
+    feature = "python",
+    allow(unsafe_op_in_unsafe_fn, non_local_definitions)
+)]
 #![allow(dead_code)]
 #![allow(clippy::large_enum_variant, clippy::type_complexity)]
 
 mod leveled_gss;
 mod stack_vecs;
+
+#[cfg(feature = "python")]
+mod python;
 
 pub use crate::leveled_gss::{LeveledGSS, LeveledGSSSummary, Merge, VirtualStack};

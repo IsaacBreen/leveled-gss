@@ -10,9 +10,17 @@ use std::sync::{Arc, OnceLock};
 ///   normal builds: `vec` (default), `arc`
 type SV<T> = DynStackVec<T>;
 
+/// Combines path accumulators when equivalent stack paths meet.
+///
+/// Implementations should behave like a join operation: associative,
+/// commutative, and idempotent. The GSS may preserve structurally distinct graph
+/// paths that denote the same concrete stack, so non-idempotent operations such
+/// as addition are not a valid accumulator merge.
 pub trait Merge: Clone {
+    /// Return the join of two accumulators.
     fn merge(&self, other: &Self) -> Self;
 
+    /// Return whether `self` already contains all information in `other`.
     fn subsumes(&self, _other: &Self) -> bool {
         false
     }
@@ -3343,6 +3351,10 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         self
     }
 
+    /// Pop `n` values from every represented stack.
+    ///
+    /// Paths shorter than `n` are discarded. Paths whose length is exactly `n`
+    /// become the empty stack. Non-positive values are a no-op.
     pub fn popn(&self, n: isize) -> Self {
         if n <= 0 {
             return self.clone();
@@ -3404,13 +3416,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                 m
             };
 
-            let mut res = merged.unwrap_or_else(|| new_lower(CompactMap::new(), false));
-
-            if node.empty() && k == 1 {
-                let terminal_node = new_lower(CompactMap::new(), true);
-                res = merge_lower(&res, &terminal_node);
-            }
-
+            let res = merged.unwrap_or_else(|| new_lower(CompactMap::new(), false));
             memo_lower.insert(key, res.clone());
             res
         }
@@ -3438,17 +3444,6 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
                             merged = Some(match merged {
                                 Some(acc) => merge_upper(&acc, &popped_child),
                                 None => popped_child,
-                            });
-                        }
-                    }
-
-                    if let Some(acc) = &b.empty {
-                        if k == 1 {
-                            let terminal_lower = new_lower(CompactMap::new(), true);
-                            let terminal_upper = new_interface(terminal_lower, acc.clone());
-                            merged = Some(match merged {
-                                Some(current) => merge_upper(&current, &terminal_upper),
-                                None => terminal_upper,
                             });
                         }
                     }
@@ -3514,11 +3509,7 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
             };
 
             if remaining == 1 {
-                let mut result = next_child.unwrap_or_else(|| new_lower(CompactMap::new(), false));
-                if current.empty() {
-                    let terminal = new_lower(CompactMap::new(), true);
-                    result = merge_lower(&result, &terminal);
-                }
+                let result = next_child.unwrap_or_else(|| new_lower(CompactMap::new(), false));
 
                 if result.children_is_empty() && !result.empty() {
                     return Some(Self::empty());
@@ -4643,6 +4634,10 @@ impl<T: Clone + Eq + Hash, A: Merge + Clone + Eq + Hash> LeveledGSS<T, A> {
         self.inner.single_child_key_without_empty()
     }
 
+    /// Count represented graph paths, capped at `limit`.
+    ///
+    /// Structurally distinct paths may denote the same concrete stack. This is
+    /// therefore not necessarily the number of unique stack value sequences.
     pub fn path_count_at_most(&self, limit: usize) -> usize {
         if limit == 0 || self.is_empty() {
             return 0;
