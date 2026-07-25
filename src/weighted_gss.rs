@@ -5022,9 +5022,11 @@ impl<T: Clone + Eq + Hash, A: Weight + Clone + Eq + Hash> WeightedGss<T, A> {
         check(&self.inner, &pred)
     }
 
-    /// Keep only stack paths whose length is at most `max_len`.
+    /// Keep at most the top `max_len` values of every represented stack.
     ///
-    /// A negative bound returns an empty GSS.
+    /// Shorter stacks are unchanged. Longer stacks are replaced by their
+    /// top `max_len` values, and weights are joined when several stacks collapse
+    /// to the same truncated stack. A negative bound returns an empty GSS.
     pub fn truncate(&self, max_len: isize) -> Self {
         if max_len < 0 {
             return Self::empty();

@@ -11,6 +11,7 @@ impl Weight for Labels {
                 labels.push(label);
             }
         }
+        labels.sort_unstable();
         Labels(labels)
     }
 }
@@ -49,4 +50,23 @@ fn duplicate_stack_weights_merge() {
     assert_eq!(stacks.len(), 1);
     assert_eq!(stacks[0].0, vec![1, 2]);
     assert_eq!(stacks[0].1, Labels(vec!["a", "b"]));
+}
+
+#[test]
+fn truncate_keeps_top_values_and_joins_collisions() {
+    let gss = WeightedGss::from_stacks(&[
+        (vec![0_u8, 1, 2, 3], Labels(vec!["left"])),
+        (vec![9_u8, 1, 2, 3], Labels(vec!["right"])),
+        (vec![5_u8, 6], Labels(vec!["short"])),
+    ]);
+
+    let mut stacks = gss.truncate(2).to_stacks(8).unwrap();
+    stacks.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(
+        stacks,
+        vec![
+            (vec![2, 3], Labels(vec!["left", "right"])),
+            (vec![5, 6], Labels(vec!["short"])),
+        ]
+    );
 }
