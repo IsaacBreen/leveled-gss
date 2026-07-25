@@ -179,11 +179,7 @@ where
     /// Return the only distinct non-empty top value when no empty alternative exists.
     #[must_use]
     pub fn top(&self) -> Option<S> {
-        if self.has_empty_stack() {
-            return None;
-        }
-        let mut tops = w_tops(&self.root);
-        (tops.len() == 1).then(|| tops.pop().expect("length checked"))
+        w_single_exclusive_top(&self.root)
     }
 
     /// Return each distinct non-empty top value once, in unspecified order.
@@ -358,7 +354,7 @@ pub struct TopBranch<S, W> {
 
 /// Iterator over distinct top symbols.
 pub struct Tops<S> {
-    inner: std::vec::IntoIter<S>,
+    inner: smallvec::IntoIter<[S; 8]>,
 }
 
 impl<S> Iterator for Tops<S> {

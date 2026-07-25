@@ -3,7 +3,7 @@ use crate::effects::StackEffect;
 use crate::gss::WeightedGss;
 use crate::nodes::{UKind, URef, WKind, u_has_empty, u_segment, w_shared};
 use crate::segment::Segment;
-use std::collections::VecDeque;
+use smallvec::SmallVec;
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -14,10 +14,10 @@ use std::sync::Arc;
 /// floor is exactly the empty stack.
 #[derive(Clone)]
 pub struct VirtualStack<S, W> {
-    segments: VecDeque<Segment<S>>,
-    floor: URef<S>,
+    values: Option<Segment<S>>,
+    next: URef<S>,
     weight: Arc<W>,
-    pending: Vec<S>,
+    pending: SmallVec<[S; 2]>,
 }
 
 impl<S, W> VirtualStack<S, W>
@@ -29,20 +29,14 @@ where
         let WKind::Shared { weight, stacks } = &gss.root.kind else {
             return None;
         };
-        let mut segments = VecDeque::new();
-        let mut cursor = stacks.clone();
-        while let UKind::Segment { values, next } = &cursor.kind {
-            segments.push_back(values.clone());
-            cursor = next.clone();
-        }
-        if segments.is_empty() {
+        let UKind::Segment { values, next } = &stacks.kind else {
             return None;
-        }
+        };
         Some(Self {
-            segments,
-            floor: cursor,
+            values: Some(values.clone()),
+            next: next.clone(),
             weight: weight.clone(),
-            pending: Vec::new(),
+            pending: SmallVec::new(),
         })
     }
 
@@ -59,25 +53,47 @@ where
             return self.pending.iter().rev().nth(depth);
         }
         depth -= self.pending.len();
-        for segment in &self.segments {
-            if depth < segment.len() {
-                return segment.get(depth);
+
+        if let Some(values) = &self.values {
+            if depth < values.len() {
+                return values.get(depth);
             }
-            depth -= segment.len();
+            depth -= values.len();
         }
-        None
+
+        let mut next = &self.next;
+        loop {
+            match &next.kind {
+                UKind::Segment {
+                    values,
+                    next: following,
+                } => {
+                    if depth < values.len() {
+                        return values.get(depth);
+                    }
+                    depth -= values.len();
+                    next = following;
+                }
+                UKind::Branch { .. } => return None,
+            }
+        }
     }
 
     /// Number of values available in the visible linear prefix.
     #[must_use]
     pub fn prefix_len(&self) -> usize {
-        self.pending.len() + self.segments.iter().map(Segment::len).sum::<usize>()
+        let current = self.values.as_ref().map_or(0, Segment::len);
+        self.pending
+            .len()
+            .saturating_add(current)
+            .saturating_add(segment_chain_len(&self.next))
     }
 
     /// Return whether the hidden floor is exactly the empty stack.
     #[must_use]
     pub fn is_complete(&self) -> bool {
-        self.floor.paths == 1 && u_has_empty(&self.floor)
+        let floor = segment_chain_floor(&self.next);
+        floor.paths == 1 && u_has_empty(floor)
     }
 
     /// Return the shared weight of all alternatives under this prefix.
@@ -97,12 +113,12 @@ where
             *top = value;
             return true;
         }
-        if self.prefix_len() == 0 {
+        if self.values.is_none() {
             return false;
         }
         let remaining = self.pop_prefix(1);
         debug_assert_eq!(remaining, 0);
-        self.push(value);
+        self.pending.push(value);
         true
     }
 
@@ -114,16 +130,26 @@ where
             self.pending.pop();
             count -= 1;
         }
+
         while count > 0 {
-            let Some(front) = self.segments.pop_front() else {
+            let Some(values) = self.values.take() else {
                 break;
             };
-            if count < front.len() {
-                self.segments
-                    .push_front(front.drop_front(count).expect("partial segment pop"));
+            if count < values.len() {
+                self.values = values.drop_front(count);
                 count = 0;
-            } else {
-                count -= front.len();
+                break;
+            }
+            count -= values.len();
+            match &self.next.kind {
+                UKind::Segment { values, next } => {
+                    self.values = Some(values.clone());
+                    self.next = next.clone();
+                }
+                UKind::Branch { .. } => {
+                    self.values = None;
+                    break;
+                }
             }
         }
         count
@@ -132,10 +158,10 @@ where
     /// Convert the fast-path view back into a general weighted GSS.
     #[must_use]
     pub fn into_gss(self) -> WeightedGss<S, W> {
-        let mut stacks = self.floor;
-        for segment in self.segments.into_iter().rev() {
-            stacks = u_segment(segment, stacks);
-        }
+        let mut stacks = match self.values {
+            Some(values) => u_segment(values, self.next),
+            None => self.next,
+        };
         if !self.pending.is_empty() {
             stacks = u_segment(
                 Segment::from_top_first(self.pending.into_iter().rev().collect()),
@@ -171,4 +197,20 @@ where
             branch.into_gss()
         }))
     }
+}
+
+fn segment_chain_len<S>(mut node: &URef<S>) -> usize {
+    let mut len = 0usize;
+    while let UKind::Segment { values, next } = &node.kind {
+        len = len.saturating_add(values.len());
+        node = next;
+    }
+    len
+}
+
+fn segment_chain_floor<S>(mut node: &URef<S>) -> &URef<S> {
+    while let UKind::Segment { next, .. } = &node.kind {
+        node = next;
+    }
+    node
 }

@@ -358,26 +358,16 @@ fn all_weight_nodes_satisfy<S, W>(
     node: &WRef<S, W>,
     predicate: &mut impl FnMut(&W) -> bool,
 ) -> bool {
-    fn walk<S, W>(
-        node: &WRef<S, W>,
-        seen: &mut FxHashSet<usize>,
-        predicate: &mut impl FnMut(&W) -> bool,
-    ) -> bool {
-        if !seen.insert(w_id(node)) {
-            return true;
-        }
-        match &node.kind {
-            WKind::Shared { weight, .. } => predicate(weight.as_ref()),
-            WKind::Branch { empty, children } => {
-                empty.iter().all(|weight| predicate(weight.as_ref()))
-                    && children
-                        .values()
-                        .flatten()
-                        .all(|child| walk(child, seen, predicate))
-            }
+    match &node.kind {
+        WKind::Shared { weight, .. } => predicate(weight.as_ref()),
+        WKind::Branch { empty, children } => {
+            empty.iter().all(|weight| predicate(weight.as_ref()))
+                && children
+                    .values()
+                    .flatten()
+                    .all(|child| all_weight_nodes_satisfy(child, predicate))
         }
     }
-    walk(node, &mut FxHashSet::default(), predicate)
 }
 
 pub(crate) fn collect_raw_paths<S, W>(

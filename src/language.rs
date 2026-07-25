@@ -31,6 +31,7 @@ pub struct StackLanguageInterner<S> {
     interned: FxHashMap<TrieNode<S>, StackLanguageId>,
     unweighted_memo: FxHashMap<usize, StackLanguageId>,
     unweighted_keepalive: Vec<URef<S>>,
+    weighted_scratch: FxHashMap<usize, StackLanguageId>,
     union_memo: FxHashMap<(u32, u32), StackLanguageId>,
 }
 
@@ -61,14 +62,18 @@ where
             interned,
             unweighted_memo: FxHashMap::default(),
             unweighted_keepalive: Vec::new(),
+            weighted_scratch: FxHashMap::default(),
             union_memo: FxHashMap::default(),
         }
     }
 
     /// Return the exact canonical key of `gss` after erasing path weights.
     pub fn key<W>(&mut self, gss: &WeightedGss<S, W>) -> StackLanguageId {
-        let mut weighted_memo = FxHashMap::default();
-        self.weighted_key(&gss.root, &mut weighted_memo)
+        let mut weighted_memo = std::mem::take(&mut self.weighted_scratch);
+        weighted_memo.clear();
+        let id = self.weighted_key(&gss.root, &mut weighted_memo);
+        self.weighted_scratch = weighted_memo;
+        id
     }
 
     /// Number of canonical trie nodes retained by this interner.

@@ -302,13 +302,28 @@ where
     }
 }
 
-pub(crate) fn u_tops<S>(node: &URef<S>) -> Vec<S>
+pub(crate) fn u_tops<S>(node: &URef<S>) -> SmallVec<[S; 8]>
 where
     S: Clone,
 {
     match &node.kind {
         UKind::Segment { values, .. } => values.first().cloned().into_iter().collect(),
         UKind::Branch { children, .. } => children.keys().cloned().collect(),
+    }
+}
+
+pub(crate) fn u_single_exclusive_top<S>(node: &URef<S>) -> Option<S>
+where
+    S: Clone,
+{
+    match &node.kind {
+        UKind::Segment { values, .. } => values.first().cloned(),
+        UKind::Branch { empty, children } => {
+            if *empty || children.len() != 1 {
+                return None;
+            }
+            children.keys().next().cloned()
+        }
     }
 }
 
@@ -687,13 +702,28 @@ where
     }
 }
 
-pub(crate) fn w_tops<S, W>(node: &WRef<S, W>) -> Vec<S>
+pub(crate) fn w_tops<S, W>(node: &WRef<S, W>) -> SmallVec<[S; 8]>
 where
     S: Clone + Eq + Hash,
 {
     match &node.kind {
         WKind::Shared { stacks, .. } => u_tops(stacks),
         WKind::Branch { children, .. } => children.keys().cloned().collect(),
+    }
+}
+
+pub(crate) fn w_single_exclusive_top<S, W>(node: &WRef<S, W>) -> Option<S>
+where
+    S: Clone + Eq + Hash,
+{
+    match &node.kind {
+        WKind::Shared { stacks, .. } => u_single_exclusive_top(stacks),
+        WKind::Branch { empty, children } => {
+            if !empty.is_empty() || children.len() != 1 {
+                return None;
+            }
+            children.keys().next().cloned()
+        }
     }
 }
 

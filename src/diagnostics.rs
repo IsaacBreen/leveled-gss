@@ -5,6 +5,18 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RepresentationId(pub(crate) usize);
 
+impl RepresentationId {
+    /// Return the compact process-local integer identifier.
+    ///
+    /// The value is opaque: callers may use it for indexing or compatibility
+    /// with integer-keyed caches, but must not interpret it as an address or
+    /// persist it across processes.
+    #[must_use]
+    pub const fn as_usize(self) -> usize {
+        self.0
+    }
+}
+
 /// Representation-level statistics.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StructuralStats {
