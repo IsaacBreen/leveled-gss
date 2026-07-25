@@ -17,7 +17,19 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 cargo publish --dry-run
 ```
 
-When Python bindings are present, additionally run the wheel, sdist, type-stub, and cross-version checks documented in `docs/python.md`.
+Python validation:
+
+```bash
+cargo clippy --features python --all-targets -- -D warnings
+maturin build --release --out dist
+python -m pip install --force-reinstall dist/weighted_gss-*.whl
+python -m unittest discover -s python/tests -v
+mypy --strict python/tests/typecheck_consumer.py
+maturin sdist --out dist
+python -m twine check dist/*
+```
+
+Run wheel and sdist installs in clean virtual environments before release.
 
 ## Design constraints
 

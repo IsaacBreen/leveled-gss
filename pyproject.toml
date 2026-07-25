@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "weighted-gss"
 dynamic = ["version"]
-description = "Persistent compressed maps from stacks to joinable weights"
+description = "Persistent weighted graph-structured stacks"
 readme = "README.md"
 requires-python = ">=3.8"
 license = "MIT OR Apache-2.0"

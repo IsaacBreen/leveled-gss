@@ -10,18 +10,30 @@ The public API is expressed entirely in terms of stacks, alternatives, weights, 
 
 ## Installation
 
+Rust:
+
 ```bash
 cargo add weighted-gss
 ```
 
-The registry currently contains version 0.1.0, which exposes the earlier extracted API. The redesigned API documented here will be released as 0.2.0. Until then, use this Git branch or repository head:
+Python 3.8 or later:
+
+```bash
+python -m pip install weighted-gss
+```
+
+The registries currently contain version 0.1.0, which exposes the earlier extracted API. The redesigned API documented here will be released as 0.2.0. Until then, use this Git branch or repository head:
 
 ```toml
 [dependencies]
-weighted-gss = { git = "https://github.com/IsaacBreen/weighted-gss" }
+weighted-gss = { git = "https://github.com/IsaacBreen/weighted-gss", branch = "rewrite/from-scratch-20260725" }
 ```
 
-## Basic use
+```bash
+python -m pip install "git+https://github.com/IsaacBreen/weighted-gss@rewrite/from-scratch-20260725"
+```
+
+## Rust use
 
 Stacks are supplied and returned bottom-to-top.
 
@@ -62,6 +74,34 @@ assert_eq!(shifted.max_depth(), 4);
 ```
 
 `Weight::join` must be associative, commutative, and idempotent. `Weight::equivalent` is an optional optimisation hint; its conservative default is always correct.
+
+## Python use
+
+The Python binding exposes the ordinary semantic API:
+
+```python
+from dataclasses import dataclass
+from weighted_gss import WeightedGSS
+
+@dataclass(frozen=True)
+class Possibilities:
+    bits: int
+
+    def join(self, other: "Possibilities") -> "Possibilities":
+        return Possibilities(self.bits | other.bits)
+
+stacks = WeightedGSS.from_stacks([
+    ([0, 1, 2], Possibilities(0b001)),
+    ([0, 1, 3], Possibilities(0b100)),
+])
+
+assert stacks.tops() == {2, 3}
+assert stacks.pop_top(2).to_stacks() == [
+    ([0, 1], Possibilities(0b001)),
+]
+```
+
+Python weights need not be hashable. Exceptions raised by `join()` are propagated normally. See the [Python API](docs/python.md).
 
 ## Core operations
 
@@ -120,7 +160,7 @@ Fixpoint algorithms can use `StackLanguageInterner` to obtain exact compact IDs 
 
 The API is sufficient to implement GLRMask without accessing graph internals. A compatibility adapter built only from this public API passes GLRMask's complete serial Rust library suite: 855 tests passed, 2 ignored.
 
-The standalone crate additionally validates operations against an explicit stack-to-weight map, tests linear prefixes over branched floors, and checks exact stack-language interning on a DAG representing 262,144 stacks.
+The standalone crate additionally validates operations against an explicit stack-to-weight map, tests linear prefixes over branched floors, and checks exact stack-language interning on a DAG representing 262,144 stacks. The ABI3 Python wheel is tested against the same semantic model, including callback-exception propagation and strict type checking.
 
 See:
 
