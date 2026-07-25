@@ -3,7 +3,10 @@ use crate::segment::Segment;
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 use std::hash::Hash;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 pub(crate) type URef<S> = Arc<UNode<S>>;
 pub(crate) type WRef<S, W> = Arc<WNode<S, W>>;
@@ -25,6 +28,7 @@ pub(crate) struct WNode<S, W> {
     pub(crate) kind: WKind<S, W>,
     pub(crate) paths: usize,
     pub(crate) max_depth: usize,
+    representation_id: AtomicUsize,
 }
 
 pub(crate) enum WKind<S, W> {
@@ -46,6 +50,30 @@ pub(crate) fn u_id<S>(node: &URef<S>) -> usize {
 #[inline]
 pub(crate) fn w_id<S, W>(node: &WRef<S, W>) -> usize {
     Arc::as_ptr(node) as usize
+}
+
+static NEXT_REPRESENTATION_ID: AtomicUsize = AtomicUsize::new(1);
+
+pub(crate) fn w_representation_id<S, W>(node: &WRef<S, W>) -> usize {
+    let existing = node.representation_id.load(Ordering::Relaxed);
+    if existing != 0 {
+        return existing;
+    }
+
+    let candidate = NEXT_REPRESENTATION_ID
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+            next.checked_add(1)
+        })
+        .expect("weighted GSS representation ID space exhausted");
+    match node.representation_id.compare_exchange(
+        0,
+        candidate,
+        Ordering::Relaxed,
+        Ordering::Relaxed,
+    ) {
+        Ok(_) => candidate,
+        Err(winner) => winner,
+    }
 }
 
 pub(crate) fn u_empty<S>() -> URef<S> {
@@ -426,6 +454,7 @@ pub(crate) fn w_empty<S, W>() -> WRef<S, W> {
         },
         paths: 0,
         max_depth: 0,
+        representation_id: AtomicUsize::new(0),
     })
 }
 
@@ -441,6 +470,7 @@ pub(crate) fn w_shared<S, W>(weight: Arc<W>, stacks: URef<S>) -> WRef<S, W> {
         paths: stacks.paths,
         max_depth: stacks.max_depth,
         kind: WKind::Shared { weight, stacks },
+        representation_id: AtomicUsize::new(0),
     })
 }
 
@@ -475,6 +505,7 @@ where
         kind: WKind::Branch { empty, children },
         paths,
         max_depth,
+        representation_id: AtomicUsize::new(0),
     })
 }
 
@@ -519,13 +550,16 @@ where
     S: Clone + Eq + Hash,
     W: Weight,
 {
-    w_merge_memo(left, right, &mut FxHashMap::default())
+    let mut memo = FxHashMap::default();
+    let mut exposed_keepalive = Vec::new();
+    w_merge_memo(left, right, &mut memo, &mut exposed_keepalive)
 }
 
 fn w_merge_memo<S, W>(
     left: &WRef<S, W>,
     right: &WRef<S, W>,
     memo: &mut FxHashMap<(usize, usize), WRef<S, W>>,
+    exposed_keepalive: &mut Vec<WRef<S, W>>,
 ) -> WRef<S, W>
 where
     S: Clone + Eq + Hash,
@@ -562,15 +596,27 @@ where
             stacks: right_stacks,
         },
     ) = (&left.kind, &right.kind)
-        && (Arc::ptr_eq(left_weight, right_weight) || left_weight.equivalent(right_weight.as_ref()))
     {
-        let result = w_shared(left_weight.clone(), u_merge(left_stacks, right_stacks));
-        memo.insert(key, result.clone());
-        return result;
+        if Arc::ptr_eq(left_weight, right_weight) || left_weight.equivalent(right_weight.as_ref()) {
+            let result = w_shared(left_weight.clone(), u_merge(left_stacks, right_stacks));
+            memo.insert(key, result.clone());
+            return result;
+        }
     }
 
-    let left = w_expose_top(left);
-    let right = w_expose_top(right);
+    let exposed_left = w_expose_top(left);
+    let exposed_right = w_expose_top(right);
+    // Exposing a shared unweighted frontier creates temporary weighted child
+    // nodes. Memo keys use pointer identity, so retain those synthetic roots
+    // until the whole merge finishes and allocator addresses cannot be reused.
+    if !Arc::ptr_eq(&exposed_left, left) {
+        exposed_keepalive.push(exposed_left.clone());
+    }
+    if !Arc::ptr_eq(&exposed_right, right) {
+        exposed_keepalive.push(exposed_right.clone());
+    }
+    let left = exposed_left;
+    let right = exposed_right;
     let (
         WKind::Branch {
             empty: left_empty,
@@ -601,7 +647,7 @@ where
             continue;
         };
         for value in values {
-            merged = w_merge_memo(&merged, &value, memo);
+            merged = w_merge_memo(&merged, &value, memo, exposed_keepalive);
         }
         children.entry(top).or_default().push(merged);
     }

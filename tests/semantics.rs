@@ -325,3 +325,43 @@ fn stack_language_interner_is_safe_across_dropped_frontiers() {
         assert!(ids.insert(interner.key(&frontier).as_u32()));
     }
 }
+
+#[test]
+fn merge_memo_does_not_alias_dropped_intermediate_nodes() {
+    let entries = [
+        (vec![2_u8, 1, 5, 1, 0], Bits(64)),
+        (vec![5], Bits(128)),
+        (vec![1, 2], Bits(64)),
+        (vec![4, 2, 5, 4, 1], Bits(32)),
+        (vec![], Bits(1)),
+        (vec![1, 2, 4, 4, 1], Bits(2)),
+        (vec![1, 2], Bits(128)),
+    ];
+    let expected = canonical(entries.clone());
+
+    for _ in 0..1_000 {
+        let gss = WeightedGss::from_stacks(entries.clone());
+        assert_eq!(materialize(&gss), expected);
+    }
+}
+
+#[test]
+fn representation_ids_are_stable_and_never_reused() {
+    use std::collections::HashSet;
+
+    let original = WeightedGss::from_stack([1_u8, 2], Bits(1));
+    let cloned = original.clone();
+    assert_eq!(original.representation_id(), cloned.representation_id());
+
+    let independently_built = WeightedGss::from_stack([1_u8, 2], Bits(1));
+    assert_ne!(
+        original.representation_id(),
+        independently_built.representation_id()
+    );
+
+    let mut seen = HashSet::new();
+    for value in 0_u32..10_000 {
+        let gss = WeightedGss::from_stack(value.to_le_bytes(), Bits(1));
+        assert!(seen.insert(gss.representation_id()));
+    }
+}

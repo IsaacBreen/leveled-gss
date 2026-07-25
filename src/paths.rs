@@ -48,8 +48,9 @@ where
 
     /// Visit raw structural paths as top-first stack slices without materializing them.
     ///
-    /// Duplicate concrete stacks may be visited more than once. The callback is
-    /// never invoked if the cached structural path count exceeds `max_paths`.
+    /// Duplicate concrete stacks may be visited more than once. At most
+    /// `max_paths` callbacks are made; if more paths exist, the method then
+    /// returns [`PathLimitExceeded`].
     pub fn for_each_top_first(
         &self,
         max_paths: usize,

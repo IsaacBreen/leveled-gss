@@ -28,6 +28,6 @@ Use one interner for one fixpoint computation. The returned `StackLanguageId` is
 
 ## Diagnostics
 
-`representation_id()` supports process-local memoisation by root identity.
+`representation_id()` supports process-local memoisation by root identity. IDs are assigned lazily, remain stable across clones, and are not reused during the process lifetime.
 
 `structural_stats()` reports representation-level nodes, edges, paths, and maximum depth. These values are diagnostics, not semantic equality criteria, and may change as the implementation evolves.

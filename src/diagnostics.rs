@@ -1,7 +1,8 @@
 /// Opaque process-local identity of a persistent GSS representation.
 ///
-/// Equal IDs mean the values share the same root representation. Different IDs
-/// do not imply different extensional meanings. IDs must not be serialized.
+/// Equal IDs mean the values share the same root representation. IDs are
+/// assigned lazily and are not reused during the process lifetime. Different
+/// IDs do not imply different extensional meanings. IDs must not be serialized.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RepresentationId(pub(crate) usize);
 

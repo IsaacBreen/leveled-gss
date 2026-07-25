@@ -81,7 +81,7 @@ Both are diagnostic and interoperability operations, not intended for hot stack 
 
 Operations return new values and retain immutable sharing where possible.
 
-`representation_id()` identifies one process-local root representation. Equal IDs mean the same representation. Different IDs do not imply different extensional meanings. IDs must not be persisted or compared across processes.
+`representation_id()` identifies one process-local root representation. IDs are assigned lazily and are not reused during the process lifetime. Equal IDs therefore mean the same representation, while different IDs do not imply different extensional meanings. IDs must not be persisted or compared across processes.
 
 `WeightedGss` deliberately does not implement ordinary equality or hashing because representation equality, raw-path equality, and extensional equality are different concepts.
 

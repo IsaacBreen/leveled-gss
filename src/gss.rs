@@ -58,7 +58,7 @@ impl<S, W> WeightedGss<S, W> {
     /// Return an opaque process-local representation identity.
     #[must_use]
     pub fn representation_id(&self) -> RepresentationId {
-        RepresentationId(w_id(&self.root))
+        RepresentationId(w_representation_id(&self.root))
     }
 
     /// Return representation-level statistics.
