@@ -2,151 +2,130 @@
 
 [![CI](https://github.com/IsaacBreen/weighted-gss/actions/workflows/ci.yml/badge.svg)](https://github.com/IsaacBreen/weighted-gss/actions/workflows/ci.yml)
 
-A persistent weighted graph-structured stack, implemented in Rust with Python bindings.
+A persistent weighted graph-structured stack for nondeterministic stack machines.
 
-`weighted-gss` represents a finite map from complete stacks to weights. Stack suffixes are shared in a compact graph, and whenever stack operations make two stacks identical, their weights are joined. The implementation uses leveled sharing, weight-free shared suffixes, compact deterministic segments, and persistent path copying.
+A `WeightedGss<S, W>` stores a collection of stack alternatives. Every stack has a weight, and when operations make alternatives denote the same concrete stack, their weights are joined. Common stack tails are shared, while linear regions use compact segments and can be exposed through a mutable fast-path view.
 
-The implementation was extracted from the graph-structured stack used by [GLRMask](https://github.com/IsaacBreen/glrmask). Version 0.1 is suitable for evaluation and integration; later 0.x releases may make breaking API changes.
+The public API is expressed entirely in terms of stacks, alternatives, weights, and stack effects. The graph representation is private.
 
 ## Installation
-
-Rust:
 
 ```bash
 cargo add weighted-gss
 ```
 
-Python 3.8 or later:
-
-```bash
-python -m pip install weighted-gss
-```
-
-Install the unreleased Git head:
+The registry currently contains version 0.1.0, which exposes the earlier extracted API. The redesigned API documented here will be released as 0.2.0. Until then, use this Git branch or repository head:
 
 ```toml
 [dependencies]
 weighted-gss = { git = "https://github.com/IsaacBreen/weighted-gss" }
 ```
 
-```bash
-python -m pip install "git+https://github.com/IsaacBreen/weighted-gss"
-```
+## Basic use
 
-## Rust example
-
-Stacks are ordered bottom-to-top.
+Stacks are supplied and returned bottom-to-top.
 
 ```rust
-use weighted_gss::{Weight, WeightedGss};
+use weighted_gss::{StackEffect, Weight, WeightedGss};
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct Cost(u32);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Possibilities(u32);
 
-impl Weight for Cost {
+impl Weight for Possibilities {
     fn join(&self, other: &Self) -> Self {
-        Cost(self.0.min(other.0))
+        Self(self.0 | other.0)
+    }
+
+    fn equivalent(&self, other: &Self) -> bool {
+        self == other
     }
 }
 
-let left = WeightedGss::from_single_stack(vec![0_u32, 1, 2], Cost(7));
-let right = WeightedGss::from_single_stack(vec![0_u32, 1, 3], Cost(4));
-let gss = left.merge(&right).push(9);
+let left = WeightedGss::from_stack([0_u32, 1, 2], Possibilities(0b001));
+let right = WeightedGss::from_stack([0_u32, 1, 3], Possibilities(0b100));
+let stacks = left.merge(&right);
 
-let mut stacks = gss.to_stacks(8).expect("materialization limit exceeded");
-stacks.sort_by(|a, b| a.0.cmp(&b.0));
+assert_eq!(stacks.top(), None);
+assert_eq!(stacks.tops().collect::<std::collections::BTreeSet<_>>(), [2, 3].into());
+
+let reduced = stacks.pop_top(&2).push(9);
 assert_eq!(
-    stacks,
-    vec![
-        (vec![0, 1, 2, 9], Cost(7)),
-        (vec![0, 1, 3, 9], Cost(4)),
-    ],
+    reduced.to_stacks(8).unwrap(),
+    vec![(vec![0, 1, 9], Possibilities(0b001))],
 );
+
+let shifted = stacks.apply_top_effects([
+    (2, StackEffect::new(1, [8])),
+    (3, StackEffect::new(0, [9])),
+]);
+assert_eq!(shifted.max_depth(), 4);
 ```
 
-`Weight::join` must be associative, commutative, and idempotent. Set union, bitwise OR, minimum, and maximum are valid examples. Addition generally is not.
+`Weight::join` must be associative, commutative, and idempotent. `Weight::equivalent` is an optional optimisation hint; its conservative default is always correct.
 
-The Rust API reference is generated on [docs.rs](https://docs.rs/weighted-gss).
+## Core operations
 
-## Python example
+Construction and alternatives:
 
-Unweighted use stores `None` as the weight:
+- `new`, `from_stack`, `from_stacks`, `from_stacks_with_weight`, `with_stack`
+- `merge`, `merge_all`
 
-```python
-from weighted_gss import WeightedGSS
+Stack operations:
 
-gss = WeightedGSS.from_unweighted([[0, 1, 2], [0, 1, 3]])
-pushed = gss.push(9)
+- `push`, `pop`, `pop_n`
+- `top`, `tops`, `retain_top`, `retain_empty`, `pop_top`, `pop_branches`
+- `retain_at_depth`
+- `apply_effect`, `apply_effects`, `apply_top_effects`
 
-assert {tuple(stack) for stack, _ in pushed.to_stacks()} == {
-    (0, 1, 2, 9),
-    (0, 1, 3, 9),
+Observations:
+
+- `is_empty`, `max_depth`, `has_empty_stack`
+- `joined_weight`, `empty_weight`
+- bounded, canonical `to_stacks`
+
+## Path-local operations
+
+Some algorithms need to transform the weights attached to the currently stored paths rather than first joining every concrete stack. That boundary is explicit:
+
+```rust
+let pruned = stacks.paths().filter_map_weights(|weight| {
+    (weight.0 != 0).then_some(*weight)
+});
+```
+
+`paths()` also provides bounded raw traversal, path counts, weight partitioning, and a caller-buffer single-path view. See [Semantics](docs/semantics.md).
+
+## Linear fast path
+
+When the top of a GSS is a linear segment, `try_virtual_stack()` exposes it as a mutable `VirtualStack`:
+
+```rust
+if let Some(mut stack) = stacks.try_virtual_stack() {
+    if stack.pop_prefix(2) == 0 {
+        stack.push(7);
+        let stacks = stack.into_gss();
+        // Continue with the general representation when needed.
+        drop(stacks);
+    }
 }
 ```
 
-Weighted values must be immutable and hashable and must define `join(other)`:
+A virtual stack may sit above a branched hidden floor. `is_complete()` distinguishes a complete concrete stack from a linear prefix over such a floor.
 
-```python
-from dataclasses import dataclass
-from weighted_gss import WeightedGSS
+## Exact stack-language keys
 
-@dataclass(frozen=True)
-class Bits:
-    value: int
+Fixpoint algorithms can use `StackLanguageInterner` to obtain exact compact IDs for the unweighted concrete stack language. The IDs ignore weights, segment boundaries, sharing layout, and duplicate representation paths.
 
-    def join(self, other: "Bits") -> "Bits":
-        return Bits(self.value | other.value)
+## Design and validation
 
-gss = WeightedGSS.from_stacks([
-    ([0, 1], Bits(0b001)),
-    ([0, 1], Bits(0b100)),
-])
+The API is sufficient to implement GLRMask without accessing graph internals. A compatibility adapter built only from this public API passes GLRMask's complete serial Rust library suite: 855 tests passed, 2 ignored.
 
-assert gss.to_stacks() == [([0, 1], Bits(0b101))]
-```
+The standalone crate additionally validates operations against an explicit stack-to-weight map, tests linear prefixes over branched floors, and checks exact stack-language interning on a DAG representing 262,144 stacks.
 
-The Python distribution is typed (`py.typed`) and provides runtime docstrings. See the [Python API guide](docs/python.md).
+See:
 
-## Semantics
+- [Semantics and invariants](docs/semantics.md)
+- [Advanced facilities](docs/advanced.md)
+- [Contributing](CONTRIBUTING.md)
 
-- A value denotes a finite map from bottom-to-top stacks to weights.
-- Operations are persistent: inputs remain valid and results retain structural sharing where possible.
-- `push(value)` pushes onto every represented stack.
-- `popn(n)` discards stacks shorter than `n`; stacks of length exactly `n` become empty stacks.
-- When two represented stacks become identical, their weights are joined.
-- `to_stacks(limit)` is bounded and never silently truncates.
-- `path_count_at_most` counts structural graph paths, which can exceed the number of distinct stack keys.
-
-See [Semantics and invariants](docs/semantics.md) for the complete contract.
-
-## Main types
-
-- `WeightedGss<T, W>`: persistent compressed map from stacks to weights.
-- `Weight`: join operation for weights on coincident stacks.
-- `VirtualStack<T, W>`: mutable fast path for a deterministic stack prefix.
-- `WeightedGssSummary`: structural diagnostics without path materialization.
-
-The Python equivalents are `WeightedGSS` and `WeightedGSSSummary`.
-
-## Testing
-
-The repository tests:
-
-- the production regression suite inherited from GLRMask;
-- both segment backends (`vec` and `arc`);
-- 40,000 randomized operation steps against an explicit stack-to-weight map;
-- a compressed graph representing 262,144 stacks;
-- Rust examples and doctests;
-- Python weighted and unweighted APIs from built wheels and source distributions;
-- package metadata and publication dry runs;
-- Linux, macOS, and Windows in GitHub Actions.
-
-## Provenance
-
-The initial standalone extraction tracks `glrmask` commit `58c24ff44e3a796172a0ea532b3d66affa188d9e`. The standalone crate changes the inherited parser-floor underflow behavior so `popn` follows ordinary stack semantics.
-
-## Contributing and license
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development instructions.
-
-Licensed under either the Apache License, Version 2.0 or the MIT License, at your option.
+Licensed under either Apache-2.0 or MIT, at your option.

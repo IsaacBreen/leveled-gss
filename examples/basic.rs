@@ -1,27 +1,29 @@
-use weighted_gss::{Weight, WeightedGss};
+use std::collections::BTreeSet;
+use weighted_gss::{StackEffect, Weight, WeightedGss};
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct Paths(Vec<&'static str>);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Bits(u32);
 
-impl Weight for Paths {
+impl Weight for Bits {
     fn join(&self, other: &Self) -> Self {
-        let mut paths = self.0.clone();
-        for path in &other.0 {
-            if !paths.contains(path) {
-                paths.push(path);
-            }
-        }
-        Paths(paths)
+        Self(self.0 | other.0)
+    }
+
+    fn equivalent(&self, other: &Self) -> bool {
+        self == other
     }
 }
 
 fn main() {
-    let left = WeightedGss::from_single_stack(vec![0_u32, 10, 20], Paths(vec!["left"]));
-    let right = WeightedGss::from_single_stack(vec![0_u32, 10, 30], Paths(vec!["right"]));
-    let merged = left.merge(&right).push(40);
+    let stacks =
+        WeightedGss::from_stacks([([0_u32, 1, 2], Bits(0b001)), ([0_u32, 1, 3], Bits(0b100))]);
 
-    println!("{:#?}", merged.summary());
-    for (stack, weight) in merged.to_stacks(16).expect("too many paths") {
-        println!("{stack:?} => {weight:?}");
-    }
+    assert_eq!(stacks.tops().collect::<BTreeSet<_>>(), [2, 3].into());
+
+    let next =
+        stacks.apply_top_effects([(2, StackEffect::new(1, [8])), (3, StackEffect::new(0, [9]))]);
+
+    let mut concrete = next.to_stacks(8).unwrap();
+    concrete.sort_by(|left, right| left.0.cmp(&right.0));
+    println!("{concrete:#?}");
 }

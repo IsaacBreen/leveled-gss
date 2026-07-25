@@ -3,32 +3,30 @@
 ## Requirements
 
 - Rust 1.85 or later
-- Python 3.8 or later for the bindings
-- maturin 1.7 or later
+- Python 3.8 or later when working on bindings
+- maturin 1.7 or later when working on packages
 
-## Checks
-
-Run the complete local validation:
+## Rust checks
 
 ```bash
 cargo fmt --all --check
-STACKVEC=vec cargo test --all-targets
-STACKVEC=arc cargo test --all-targets
+cargo test --all-targets
 cargo test --doc
 cargo clippy --all-targets -- -D warnings
-cargo clippy --features python --all-targets -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 cargo publish --dry-run
-maturin build --release --out dist
-python -m pip install --force-reinstall dist/weighted_gss-*.whl
-python -m unittest discover -s python/tests -v
 ```
 
-Public Rust API additions must include rustdoc because the crate denies `missing_docs`. Python API additions must update runtime docstrings, `python/weighted_gss/__init__.pyi`, and Python tests.
+When Python bindings are present, additionally run the wheel, sdist, type-stub, and cross-version checks documented in `docs/python.md`.
 
 ## Design constraints
 
 - Preserve stack-to-weight correlation.
-- Treat `Weight::join` as an associative, commutative, idempotent join.
-- Keep `to_stacks` bounded; do not introduce unbounded materialization into hot paths.
-- Run semantic tests against both `STACKVEC` backends.
+- Treat `Weight::join` as associative, commutative, and idempotent.
+- Keep representation details private.
+- Put path-local transformations behind `WeightedGss::paths()`.
+- Keep materialisation bounded; do not introduce it into hot stack operations.
+- Preserve the `VirtualStack` fast path for linear prefixes over both complete and branched floors.
+- Test semantic operations against an explicit stack-to-weight model.
+- Test any pointer-based memoisation against allocator address reuse.
+- Validate substantial API changes through the GLRMask public-API adapter.

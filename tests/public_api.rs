@@ -1,72 +1,46 @@
-use weighted_gss::{Weight, WeightedGss};
+use std::collections::BTreeSet;
+use weighted_gss::{Gss, StackEffect, Weight, WeightedGss};
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct Labels(Vec<&'static str>);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Bits(u32);
 
-impl Weight for Labels {
+impl Weight for Bits {
     fn join(&self, other: &Self) -> Self {
-        let mut labels = self.0.clone();
-        for label in &other.0 {
-            if !labels.contains(label) {
-                labels.push(label);
-            }
-        }
-        labels.sort_unstable();
-        Labels(labels)
+        Self(self.0 | other.0)
     }
 }
 
 #[test]
-fn merge_push_and_pop_preserve_paths_and_weights() {
-    let left = WeightedGss::from_single_stack(vec![0_u8, 1, 2], Labels(vec!["left"]));
-    let right = WeightedGss::from_single_stack(vec![0_u8, 1, 3], Labels(vec!["right"]));
+fn public_api_reads_like_stack_operations() {
+    let left = WeightedGss::from_stack([0_u8, 1, 2], Bits(1));
+    let right = WeightedGss::from_stack([0_u8, 1, 3], Bits(2));
+    let stacks = left.merge(&right);
 
-    let merged = left.merge(&right);
-    assert_eq!(merged.path_count_at_most(8), 2);
-    assert_eq!(merged.peek(), [2_u8, 3].into_iter().collect());
-
-    let pushed = merged.push(4);
-    assert_eq!(pushed.peek(), [4_u8].into_iter().collect());
-
-    let mut round_trip = pushed.pop().to_stacks(8).unwrap();
-    round_trip.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(
-        round_trip,
-        vec![
-            (vec![0, 1, 2], Labels(vec!["left"])),
-            (vec![0, 1, 3], Labels(vec!["right"])),
-        ]
+        stacks.tops().collect::<BTreeSet<_>>(),
+        BTreeSet::from([2, 3])
+    );
+    assert_eq!(stacks.top(), None);
+
+    let branch = stacks.pop_top(&2);
+    assert_eq!(branch.top(), Some(1));
+    assert_eq!(branch.to_stacks(8).unwrap(), vec![(vec![0, 1], Bits(1))]);
+
+    let shifted =
+        stacks.apply_top_effects([(2, StackEffect::new(1, [8])), (3, StackEffect::new(0, [9]))]);
+    let mut materialized = shifted.to_stacks(8).unwrap();
+    materialized.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(
+        materialized,
+        vec![(vec![0, 1, 3, 9], Bits(2)), (vec![0, 1, 8], Bits(1)),]
     );
 }
 
 #[test]
-fn duplicate_stack_weights_merge() {
-    let gss = WeightedGss::from_stacks(&[
-        (vec![1_u8, 2], Labels(vec!["a"])),
-        (vec![1_u8, 2], Labels(vec!["b"])),
-    ]);
-
-    let stacks = gss.to_stacks(4).unwrap();
-    assert_eq!(stacks.len(), 1);
-    assert_eq!(stacks[0].0, vec![1, 2]);
-    assert_eq!(stacks[0].1, Labels(vec!["a", "b"]));
-}
-
-#[test]
-fn truncate_keeps_top_values_and_joins_collisions() {
-    let gss = WeightedGss::from_stacks(&[
-        (vec![0_u8, 1, 2, 3], Labels(vec!["left"])),
-        (vec![9_u8, 1, 2, 3], Labels(vec!["right"])),
-        (vec![5_u8, 6], Labels(vec!["short"])),
-    ]);
-
-    let mut stacks = gss.truncate(2).to_stacks(8).unwrap();
-    stacks.sort_by(|a, b| a.0.cmp(&b.0));
+fn unweighted_alias_is_usable() {
+    let stacks = Gss::from_stacks([([0_u8, 1], ()), ([0_u8, 2], ())]);
     assert_eq!(
-        stacks,
-        vec![
-            (vec![2, 3], Labels(vec!["left", "right"])),
-            (vec![5, 6], Labels(vec!["short"])),
-        ]
+        stacks.tops().collect::<BTreeSet<_>>(),
+        BTreeSet::from([1, 2])
     );
 }

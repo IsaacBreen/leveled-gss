@@ -20,8 +20,8 @@ Both repository secrets are configured. Trusted publishing remains supported: de
 5. Create and push an annotated tag matching the Cargo version:
 
    ```bash
-   git tag -a v0.1.0 -m "weighted-gss 0.1.0"
-   git push origin v0.1.0
+   git tag -a v0.2.0 -m "weighted-gss 0.2.0"
+   git push origin v0.2.0
    ```
 
 The release workflow verifies the tag/version match, publishes the crate, builds Python wheels and an sdist, publishes them to PyPI through trusted publishing, and creates the GitHub release.
