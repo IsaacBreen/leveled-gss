@@ -1,5 +1,5 @@
 {
-  "schema": "weighted-gss/glrmask-validation/v2",
+  "schema": "weighted-gss/glrmask-validation/v3",
   "date": "2026-07-26",
   "environment": {
     "machine": "Apple M1 Pro MacBook Pro",
@@ -211,11 +211,148 @@
     "glrmask_tests_failed": 0,
     "glrmask_tests_ignored": 2
   },
-  "scope": "historical_pre_api_reduction_stress_test",
-  "public_api_status": "The tested adapter used a broader candidate. Parser-specific facilities exercised here are not part of the final weighted-gss 0.2 public API.",
+  "scope": "historical_broad_candidate_and_final_compact_engine_validation",
+  "public_api_status": "The final weighted-gss 0.2 design keeps semantic stack operations as the default API and exposes a small opt-in engine module. GLRMask-specific wrappers and parser actions remain application-local.",
   "tested_revisions": {
     "weighted_gss": "59bebf9550d8b53c244f9e3b17d7bafacda1d343",
     "glrmask_adapter": "de33574931371e940d242996292554b31e550e7a",
     "cfa": "66415b0af3348ebd886021ac7627ce6ebe44f016"
+  },
+  "final_compact_engine_follow_up": {
+    "revisions": {
+      "weighted_gss": "b541121c35a2e1b234fc2f7d8e9782368cfd0b6c",
+      "glrmask_adapter": "4158458e627a4301607075a8bb2429532f0257f7",
+      "cfa": "66415b0af3348ebd886021ac7627ce6ebe44f016"
+    },
+    "artifacts": {
+      "oracle_sweep": {
+        "name": "weighted-gss-engine-popfix-fullprefix.json.zst",
+        "sha256": "e1f590e9b1d5d07632f62154424cbbec54728fe4702cd6993013b99141714272"
+      },
+      "o62060_normal_rerun": {
+        "name": "weighted-gss-engine-popfix-o62060.json.zst",
+        "sha256": "1b33cb703903f4bea78903462ecd75fd4201e25fce37045c5bb26376457c4e4c"
+      },
+      "benchmark_before": {
+        "name": "weighted-gss-engine-popfix-before-224.json.zst",
+        "sha256": "387708b6705fcf7df4699874c45c6cec96a5ab262c603ed2fe238552a60df08f"
+      },
+      "benchmark_broad": {
+        "name": "weighted-gss-engine-popfix-broad-224.json.zst",
+        "sha256": "f10bdc17d85663602198ae0f073a03da5a8af399e01e091f838bc33cc94190bc"
+      },
+      "benchmark_after": {
+        "name": "weighted-gss-engine-popfix-after-224.json.zst",
+        "sha256": "27f10d5c4426e7529ebfe9b9884c5b3d2ae9793050338007b9d34dc2b89dc544"
+      },
+      "glrmask_remote_pinned_wheel": {
+        "name": "glrmask-0.1.1-cp312-cp312-macosx_11_0_arm64.whl",
+        "sha256": "083688af49a72c7122de44a65c2e5d415a86538583fb2824a06a14964e703aa1"
+      },
+      "weighted_gss_wheel": {
+        "name": "weighted_gss-0.2.0-cp38-abi3-macosx_11_0_arm64.whl",
+        "sha256": "0ed6beeb8f6f47879c1a5fe2be9f2aaa5608c02a83d3459d07d0eb47b4ba4d62"
+      },
+      "weighted_gss_sdist": {
+        "name": "weighted_gss-0.2.0.tar.gz",
+        "sha256": "90283cd5f99a7644fc128eeae51c46b15454b6f806bda2ec123263f8cfdfad5f"
+      }
+    },
+    "correctness": {
+      "requested_problems": 226,
+      "examples": 1060,
+      "semantic_steps": 611642,
+      "semantic_mismatches": 0,
+      "coverage_mismatches": 0,
+      "oracle_sweep_paired_steps": 603631,
+      "oracle_assertion_failures": 0,
+      "oracle_timeout_problem": "jsb/data/Github_hard---o62060",
+      "oracle_timeout_seconds": 120,
+      "o62060_normal_build_seconds": 0.619664209196344,
+      "o62060_paired_steps": 8011,
+      "o62060_semantic_mismatches": 0,
+      "original_regression_problem": "jsb/data/Github_easy---o50163"
+    },
+    "release_only_bug": {
+      "cause": "Mutating LinearPrefix::popn calls were placed inside debug_assert_eq!, so optimized builds compiled the pop away.",
+      "fix": "Execute the pop unconditionally and assert only on the returned unconsumed count.",
+      "release_mode_regression_tests": 4
+    },
+    "glrmask_gates": {
+      "rust_tests_passed": 859,
+      "rust_tests_failed": 0,
+      "rust_tests_ignored": 2,
+      "release_regression_tests_passed": 4,
+      "remote_pinned_wheel": "passed",
+      "original_regression_schema": "passed_with_fast_path_equivalence_and_distributivity_oracles"
+    },
+    "performance_bracket": {
+      "order": [
+        "compact_before",
+        "historical_broad",
+        "compact_after"
+      ],
+      "requested_problems": 224,
+      "excluded_harness_deadlock_problems": [
+        "jsb/data/Github_hard---o62065",
+        "jsb/data/Github_hard---o21073"
+      ],
+      "independent_build_timeouts": {
+        "historical_broad": "jsb/data/Github_ultra---o21135",
+        "compact_before": "jsb/data/Github_ultra---o62058"
+      },
+      "common_steps": 305189,
+      "step_semantic_mismatches": 0,
+      "common_builds": 219,
+      "timing_runs": 10,
+      "metrics": {
+        "mask": {
+          "midpoint_sum_percent_delta": -15.548,
+          "median_delta_us": -0.187,
+          "trimmed_99_9_percent_delta": -12.894,
+          "p99_candidate_us": 9.666,
+          "p99_broad_us": 12.125
+        },
+        "commit": {
+          "midpoint_sum_percent_delta": -17.807,
+          "median_delta_us": -0.1465,
+          "trimmed_99_9_percent_delta": -15.566,
+          "p99_candidate_us": 11.669,
+          "p99_broad_us": 16.834
+        },
+        "tbm": {
+          "midpoint_sum_percent_delta": -16.725,
+          "median_delta_us": -0.3745,
+          "trimmed_99_9_percent_delta": -14.544,
+          "p99_candidate_us": 19.584,
+          "p99_broad_us": 25.834
+        }
+      },
+      "build": {
+        "midpoint_sum_percent_delta": -14.37,
+        "median_delta_ms": -28.355
+      }
+    },
+    "weighted_gss_release_gates": {
+      "default_tests": "passed",
+      "engine_tests": "passed",
+      "default_doc_tests": "passed",
+      "engine_doc_tests": "passed",
+      "clippy_default": "passed",
+      "clippy_engine": "passed",
+      "clippy_python_check": "passed",
+      "rustdoc_warnings_denied": "passed",
+      "rust_1_85_default": "passed",
+      "rust_1_85_engine": "passed",
+      "rust_1_85_python": "passed",
+      "cargo_publish_dry_run": "passed",
+      "wheel_build": "passed",
+      "sdist_build": "passed",
+      "twine_wheel": "passed",
+      "twine_sdist": "passed",
+      "python_wheel_tests": 11,
+      "python_sdist_tests": 11,
+      "mypy_strict": "passed"
+    }
   }
 }
