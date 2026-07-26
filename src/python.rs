@@ -1,10 +1,14 @@
+use crate::nodes::{UKind, URef, WKind, WRef, u_id, w_id};
 use crate::{Weight, WeightedGss as CoreWeightedGss};
 use pyo3::basic::CompareOp;
 use pyo3::exceptions::{PyOverflowError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyList, PyModule, PySet, PyTuple, PyType};
+use pyo3::types::{PyAny, PyDict, PyList, PyModule, PySet, PyTuple, PyType};
+use rustc_hash::FxHashMap;
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 thread_local! {
     static PENDING_CALLBACK_ERROR: RefCell<Option<PyErr>> = const { RefCell::new(None) };
@@ -131,6 +135,55 @@ impl Weight for PyWeight {
     }
 }
 
+fn enqueue_weighted_node(
+    node: &WRef<PyKey, PyWeight>,
+    ids: &mut FxHashMap<usize, usize>,
+    queue: &mut VecDeque<WRef<PyKey, PyWeight>>,
+) -> usize {
+    let pointer = w_id(node);
+    if let Some(id) = ids.get(&pointer) {
+        return *id;
+    }
+    let id = ids.len();
+    ids.insert(pointer, id);
+    queue.push_back(node.clone());
+    id
+}
+
+fn enqueue_unweighted_node(
+    node: &URef<PyKey>,
+    ids: &mut FxHashMap<usize, usize>,
+    queue: &mut VecDeque<URef<PyKey>>,
+) -> usize {
+    let pointer = u_id(node);
+    if let Some(id) = ids.get(&pointer) {
+        return *id;
+    }
+    let id = ids.len();
+    ids.insert(pointer, id);
+    queue.push_back(node.clone());
+    id
+}
+
+fn weight_reference(
+    py: Python<'_>,
+    weight: &Arc<PyWeight>,
+    ids: &mut FxHashMap<usize, usize>,
+    output: &Bound<'_, PyList>,
+) -> PyResult<String> {
+    let pointer = Arc::as_ptr(weight) as usize;
+    if let Some(id) = ids.get(&pointer) {
+        return Ok(format!("a{id}"));
+    }
+    let id = ids.len();
+    ids.insert(pointer, id);
+    let entry = PyDict::new(py);
+    entry.set_item("id", format!("a{id}"))?;
+    entry.set_item("value", weight.0.clone_ref(py))?;
+    output.append(entry)?;
+    Ok(format!("a{id}"))
+}
+
 /// A persistent collection of weighted stack alternatives.
 ///
 /// Stacks are ordered bottom-to-top. Stack values must be immutable and
@@ -174,6 +227,134 @@ impl PyWeightedGss {
             let pair = PyTuple::new(py, [values.into_any().unbind(), weight.0])?;
             result.append(pair)?;
         }
+        Ok(result.into_any().unbind())
+    }
+
+    fn dump_structure(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let result = PyDict::new(py);
+        let nodes = PyList::empty(py);
+        let edges = PyList::empty(py);
+        let weights = PyList::empty(py);
+
+        let mut weighted_ids = FxHashMap::default();
+        let mut unweighted_ids = FxHashMap::default();
+        let mut weight_ids = FxHashMap::default();
+        let mut weighted_queue = VecDeque::new();
+        let mut unweighted_queue = VecDeque::new();
+
+        let root_id =
+            enqueue_weighted_node(&self.inner.root, &mut weighted_ids, &mut weighted_queue);
+
+        while let Some(node) = weighted_queue.pop_front() {
+            let source_id = weighted_ids[&w_id(&node)];
+            let node_output = PyDict::new(py);
+            node_output.set_item("id", format!("w{source_id}"))?;
+            node_output.set_item("enum", "WKind")?;
+            node_output.set_item("layer", "weighted")?;
+            node_output.set_item("paths", node.paths)?;
+            node_output.set_item("max_depth", node.max_depth)?;
+
+            match &node.kind {
+                WKind::Branch { empty, children } => {
+                    node_output.set_item("variant", "Branch")?;
+                    let empty_weights = PyList::empty(py);
+                    for weight in empty {
+                        empty_weights.append(weight_reference(
+                            py,
+                            weight,
+                            &mut weight_ids,
+                            &weights,
+                        )?)?;
+                    }
+                    node_output.set_item("empty_weights", empty_weights)?;
+
+                    for (value, alternatives) in children {
+                        for (alternative, child) in alternatives.iter().enumerate() {
+                            let target_id = enqueue_weighted_node(
+                                child,
+                                &mut weighted_ids,
+                                &mut weighted_queue,
+                            );
+                            let edge = PyDict::new(py);
+                            edge.set_item("from", format!("w{source_id}"))?;
+                            edge.set_item("to", format!("w{target_id}"))?;
+                            edge.set_item("kind", "stack")?;
+                            edge.set_item("value", value.object.clone_ref(py))?;
+                            edge.set_item("alternative", alternative)?;
+                            edges.append(edge)?;
+                        }
+                    }
+                }
+                WKind::Shared { weight, stacks } => {
+                    node_output.set_item("variant", "Shared")?;
+                    node_output.set_item(
+                        "weight",
+                        weight_reference(py, weight, &mut weight_ids, &weights)?,
+                    )?;
+                    let target_id =
+                        enqueue_unweighted_node(stacks, &mut unweighted_ids, &mut unweighted_queue);
+                    let edge = PyDict::new(py);
+                    edge.set_item("from", format!("w{source_id}"))?;
+                    edge.set_item("to", format!("u{target_id}"))?;
+                    edge.set_item("kind", "shared_stacks")?;
+                    edges.append(edge)?;
+                }
+            }
+            nodes.append(node_output)?;
+        }
+
+        while let Some(node) = unweighted_queue.pop_front() {
+            let source_id = unweighted_ids[&u_id(&node)];
+            let node_output = PyDict::new(py);
+            node_output.set_item("id", format!("u{source_id}"))?;
+            node_output.set_item("enum", "UKind")?;
+            node_output.set_item("layer", "unweighted")?;
+            node_output.set_item("paths", node.paths)?;
+            node_output.set_item("max_depth", node.max_depth)?;
+
+            match &node.kind {
+                UKind::Branch { empty, children } => {
+                    node_output.set_item("variant", "Branch")?;
+                    node_output.set_item("empty", *empty)?;
+                    for (value, alternatives) in children {
+                        for (alternative, child) in alternatives.iter().enumerate() {
+                            let target_id = enqueue_unweighted_node(
+                                child,
+                                &mut unweighted_ids,
+                                &mut unweighted_queue,
+                            );
+                            let edge = PyDict::new(py);
+                            edge.set_item("from", format!("u{source_id}"))?;
+                            edge.set_item("to", format!("u{target_id}"))?;
+                            edge.set_item("kind", "stack")?;
+                            edge.set_item("value", value.object.clone_ref(py))?;
+                            edge.set_item("alternative", alternative)?;
+                            edges.append(edge)?;
+                        }
+                    }
+                }
+                UKind::Segment { values, next } => {
+                    node_output.set_item("variant", "Segment")?;
+                    let segment_values =
+                        PyList::new(py, values.iter().map(|value| value.object.clone_ref(py)))?;
+                    node_output.set_item("values_top_first", segment_values)?;
+                    let target_id =
+                        enqueue_unweighted_node(next, &mut unweighted_ids, &mut unweighted_queue);
+                    let edge = PyDict::new(py);
+                    edge.set_item("from", format!("u{source_id}"))?;
+                    edge.set_item("to", format!("u{target_id}"))?;
+                    edge.set_item("kind", "segment_next")?;
+                    edges.append(edge)?;
+                }
+            }
+            nodes.append(node_output)?;
+        }
+
+        result.set_item("schema", "weighted-gss/internal-structure/v1")?;
+        result.set_item("root", format!("w{root_id}"))?;
+        result.set_item("nodes", nodes)?;
+        result.set_item("edges", edges)?;
+        result.set_item("weights", weights)?;
         Ok(result.into_any().unbind())
     }
 }
@@ -400,6 +581,30 @@ impl PyWeightedGss {
     /// Return the maximum represented stack depth.
     fn max_depth(&self) -> usize {
         self.inner.max_depth()
+    }
+
+    /// Return the internal shared graph as Python dictionaries and lists.
+    ///
+    /// This private diagnostic method exposes implementation details and may
+    /// change without notice.
+    fn _dump_structure(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self.dump_structure(py)
+    }
+
+    /// Return the internal shared graph as JSON.
+    ///
+    /// Values that are not directly JSON serializable are represented with
+    /// ``repr``. This private diagnostic format may change without notice.
+    #[pyo3(signature = (indent = 2))]
+    fn _dump_json(&self, py: Python<'_>, indent: usize) -> PyResult<String> {
+        let structure = self.dump_structure(py)?;
+        let json = PyModule::import(py, "json")?;
+        let builtins = PyModule::import(py, "builtins")?;
+        let kwargs = PyDict::new(py);
+        kwargs.set_item("indent", indent)?;
+        kwargs.set_item("default", builtins.getattr("repr")?)?;
+        json.call_method("dumps", (structure,), Some(&kwargs))?
+            .extract()
     }
 
     fn __bool__(&self) -> bool {

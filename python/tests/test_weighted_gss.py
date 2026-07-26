@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import random
 import unittest
 from dataclasses import dataclass
@@ -211,6 +212,32 @@ class WeightedGSSTest(unittest.TestCase):
             WeightedGSS.from_unweighted([[[1, 2]]])
         with self.assertRaises(ValueError):
             WeightedGSS.from_unweighted([[1]]).pop_n(-1)
+
+    def test_private_structure_dump_preserves_graph_identity_and_variants(self):
+        gss = WeightedGSS.from_stacks(
+            [
+                ([0, 4, 9, 12, 18, 31], Bits(1)),
+                ([0, 4, 9, 12, 27, 31], Bits(1)),
+                ([0, 4, 13, 27, 31], Bits(2)),
+            ]
+        )
+
+        dump = gss._dump_structure()
+        node_ids = {node["id"] for node in dump["nodes"]}
+        variants = {(node["enum"], node["variant"]) for node in dump["nodes"]}
+
+        self.assertEqual(dump["schema"], "weighted-gss/internal-structure/v1")
+        self.assertIn(dump["root"], node_ids)
+        self.assertTrue(all(edge["from"] in node_ids for edge in dump["edges"]))
+        self.assertTrue(all(edge["to"] in node_ids for edge in dump["edges"]))
+        self.assertIn(("WKind", "Branch"), variants)
+        self.assertIn(("WKind", "Shared"), variants)
+        self.assertIn(("UKind", "Segment"), variants)
+        self.assertTrue(dump["weights"])
+
+        encoded = json.loads(gss._dump_json())
+        self.assertEqual(encoded["schema"], dump["schema"])
+        self.assertEqual(encoded["root"], dump["root"])
 
 
 if __name__ == "__main__":
