@@ -47,7 +47,6 @@ impl Weight for Possibilities {
     fn join(&self, other: &Self) -> Self {
         Self(self.0 | other.0)
     }
-
 }
 
 let left = WeightedGss::from_stack([0_u32, 1, 2], Possibilities(0b001));
@@ -130,7 +129,7 @@ let pruned = stacks.paths().filter_map_weights(|weight| {
 });
 ```
 
-`paths()` also provides bounded structural traversal, path counts, immutable weight iteration, weight partitioning, and a caller-buffer single-path view. Structural layout is not part of the API contract. See [Semantics](docs/semantics.md).
+`paths()` also provides bounded structural traversal, path counts, immutable weight iteration, weight partitioning, and an allocation-free single-path callback. Structural layout is not part of the API contract. See [Semantics](docs/semantics.md).
 
 ## Linear fast path
 

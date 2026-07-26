@@ -4,9 +4,10 @@
 
 `WeightedGss::paths()` provides operations whose meaning is explicitly tied to stored weighted paths:
 
-- bounded zero-copy callback traversal with `for_each_top_first`;
+- bounded zero-copy callback traversal with `for_each_path_top_first`;
 - capped structural path counts with `path_count_at_most`;
 - immutable iteration over stored weight nodes without expanding paths;
+- allocation-free access to the sole structural path with `with_single_path_top_first`;
 - path-local map and filter-map operations, including fallible variants;
 - partitioning paths by equal stored weights.
 

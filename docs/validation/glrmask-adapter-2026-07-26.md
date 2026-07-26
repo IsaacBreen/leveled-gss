@@ -1,68 +1,86 @@
 # GLRMask adapter validation — 2026-07-26
 
-This records the principal application-level acceptance test for the standalone `weighted-gss` rewrite: GLRMask implemented through the crate's documented public API, without retaining GLRMask's old graph representation.
+This is the application-level acceptance test for the standalone `weighted-gss` 0.2 rewrite. GLRMask was implemented through the crate's documented Rust API; it did not retain or access the old graph representation.
 
-## Revisions and environment
+## Final revisions
 
-- `weighted-gss` candidate branch: `perf/slowall-final-20260726`, based on `819fd5c6a561ef2954fcf43ee1fa89cb8aa622af`.
-- GLRMask adapter branch: `perf/weighted-gss-slowall-final-20260726`, based on `b44f2a85bff86d65811769b15504fe693a6792d8`.
-- CFA benchmark revision: `8584f26f367575d9f467816690030694f7ac0320`.
-- Machine: Apple M1 Pro MacBook Pro, 10 CPU cores, 16 GB RAM, macOS 26.5.
-- GLRMask candidate wheel SHA-256: `6ab56f35a5347c88294ae1ea48feafd960c3db6dd1d124e6edf1aaadca966e12`.
+- weighted-gss: `59bebf9550d8b53c244f9e3b17d7bafacda1d343` (`rewrite/from-scratch-20260725`)
+- GLRMask adapter: `de33574931371e940d242996292554b31e550e7a` (`feature/weighted-gss-adapter-20260725`)
+- CFA: `66415b0af3348ebd886021ac7627ce6ebe44f016`
+- Machine: Apple M1 Pro MacBook Pro, 10 CPU cores, 16 GB RAM, macOS 26.5
+- Final adapter wheel SHA-256: `ccb7dfd2e15c9ffaaeb8078d15bc78fc19a81d9cb21e04a2606cd66b6dc41372`
 
-The command for each leg was:
+The sweep command was:
 
 ```sh
 make --no-print-directory example-slow-all \
   FRAMEWORKS=glrmask_native \
   ARGS='--allow-single-framework' \
-  OUTPUT=<leg>.json.zst \
-  PYTHON=<clean-venv-python>
+  OUTPUT=<artifact>.json.zst \
+  PYTHON=<clean-venv-python> \
+  TIMING_RUNS=10 BUILD_RUNS=1
 ```
 
-The suite used 50 measured runtime runs per example, no separate warm-up runs, and elementwise minimum reduction across runs. Build measurement used up to 20 runs with the CFA target-time policy. The full configuration is retained in each raw CFA artifact.
+There were no warm-up runs. Runtime values below use CFA's elementwise minimum across the ten measured runs. Recorded per-step maxima were inspected separately and were substantially noisier because occasional millisecond interruptions moved between unrelated steps and problems.
 
 ## Correctness and coverage
 
-The comparison used an adapter → baseline → adapter bracket.
+The exact final tree completed:
 
-- Problems requested: **226**.
-- Problems built in both implementations: **222**.
-- Paired examples: **1,060**.
-- Paired semantic steps: **611,642**.
-- Semantic mismatches: **0**.
-- Both adapter legs built **223** problems.
-- The adapter built `jsb/data/Github_hard---o9882`; the adjacent baseline exceeded the 120-second build timeout.
+- **226** requested problems;
+- **223** successful builds;
+- **1,060** examples;
+- **611,642** semantic steps;
+- **0** semantic mismatches against the previous validated candidate;
+- **0** coverage mismatches; and
+- GLRMask's complete serial library suite: **855 passed, 0 failed, 2 ignored**.
 
 Semantic comparison covered token counts, rejection positions, expected-token membership, and mask sizes at every paired step.
 
-## Runtime result
+## Clean-API performance bracket
 
-The two adapter legs bracket the adjacent baseline. “Midpoint” is the elementwise average of the two adapter measurements before comparison with the baseline.
+The principal comparison used final clean-API adapter → previous validated adapter → final clean-API adapter. The weighted-gss candidate for this bracket was `d0c76ad`; the later `59bebf9` tree adds private diagnostics and terminal-suffix sharing without changing the public runtime contract.
 
-| Metric | Adapter before | Adapter after | Bracket midpoint | Mean midpoint delta |
-|---|---:|---:|---:|---:|
-| Mask time | +5.594% | +2.062% | **+3.828%** | +0.072 µs |
-| Commit time | +2.099% | −5.460% | **−1.680%** | −0.026 µs |
-| Total TBM | +4.052% | −1.422% | **+1.315%** | +0.046 µs |
+One build (`jsb/data/Github_hard---o21073`) timed out only in the first candidate leg. The bracket therefore compares the **222** builds and **306,361** mask steps common to all three legs. There were **0 semantic mismatches** on the common coverage.
 
-For total TBM, the bracket-midpoint median per-step delta was **+0.085 µs**. Adapter total-TBM drift between the two legs was **−5.261%**, so the midpoint is more credible than either single adjacent comparison. This is a small but measurable runtime cost, not exact performance parity.
+| Metric | Candidate before | Candidate after | Bracket midpoint | Median midpoint delta | p99 midpoint vs baseline |
+|---|---:|---:|---:|---:|---:|
+| Mask | -5.696% | -6.092% | **-5.894%** | -0.103 µs | 5.167 vs 5.625 µs |
+| Commit | -3.611% | -2.591% | **-3.101%** | +0.020 µs | 5.104 vs 5.833 µs |
+| Total TBM | -4.890% | -4.623% | **-4.756%** | -0.084 µs | 9.104 vs 10.208 µs |
 
-Selected build time over the 222 common builds was **−0.332%** at the bracket midpoint. Build measurements varied substantially between legs; the reliable conclusions are that no systematic build regression was established and that the adapter completed `o9882` when the baseline timed out.
+The 99.9%-trimmed TBM result was **-4.664%**. This establishes that the cleaned 0.2 API did not require a runtime compromise for GLRMask's workload.
 
-## Final standalone-package checks
+Build timings were more order-sensitive. Across the 222 common builds, total selected build time was +5.006% at the bracket midpoint, while median build time was lower for the candidate (169.1 ms versus 191.2 ms). No meaningful build regression was established.
 
-The candidate also passed:
+## Exact final-tree confirmation
+
+After porting terminal-suffix sharing and the private Python structure dump, the exact `59bebf9` tree was run again. It matched the previous candidate on all 226 problems and all 611,642 semantic steps.
+
+Observed elementwise-min timings in that adjacent run were:
+
+| Metric | Total delta | Median delta | p99 final vs baseline |
+|---|---:|---:|---:|
+| Mask | -8.870% | -0.125 µs | 4.958 vs 5.625 µs |
+| Commit | -7.259% | +0.000 µs | 4.709 vs 5.833 µs |
+| Total TBM | -8.202% | -0.166 µs | 8.749 vs 10.208 µs |
+
+Because this was a single adjacent leg rather than a bracket, its magnitude is confirmation rather than the primary comparative estimate. It showed no regression after the final two ports.
+
+## Release-package gates
+
+The exact final tree passed:
 
 - `cargo fmt --all --check`;
-- `cargo test --all-targets` and doc tests;
+- all Rust targets and doc tests;
 - Clippy with warnings denied, with and without Python bindings;
 - rustdoc with warnings denied;
+- Rust 1.85 checks, with and without Python bindings;
 - `cargo publish --dry-run`;
-- abi3 Python wheel build for Python 3.8+;
-- 10 Python binding tests;
-- strict mypy consumer check;
-- source-distribution build; and
-- Twine metadata checks for both wheel and sdist.
+- ABI3 wheel and source-distribution builds;
+- Twine validation for wheel and sdist;
+- clean wheel install and **11** Python tests;
+- clean sdist install and **11** Python tests; and
+- strict mypy consumer checking.
 
-The machine-readable bracket summary is in [`glrmask-adapter-2026-07-26.json`](glrmask-adapter-2026-07-26.json).
+The machine-readable record is in [`glrmask-adapter-2026-07-26.json`](glrmask-adapter-2026-07-26.json).
