@@ -7,12 +7,12 @@
 - bounded raw materialisation with `to_vec`;
 - bounded zero-copy callback traversal with `for_each_top_first`;
 - capped structural path counts;
-- caller-buffer extraction of the only structural path;
+- caller-buffer extraction of the only structural path, including `single_top_first_small` for allocation-free inline buffers;
 - visiting stored weight nodes without expanding paths;
 - path-local map and filter-map operations, including fallible variants;
 - partitioning paths by equal stored weights.
 
-These operations are useful for dataflow annotations, parser exclusion state, diagnostics, and language bindings. They should not be confused with canonical iteration over distinct concrete stacks.
+Weight-only transformations preserve the immutable unweighted stack DAG, so changing annotations does not rebuild the stack structure. These operations are useful for dataflow annotations, parser exclusion state, diagnostics, and language bindings. They should not be confused with canonical iteration over distinct concrete stacks.
 
 ## `VirtualStack`
 

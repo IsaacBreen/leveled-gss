@@ -133,7 +133,7 @@ let pruned = stacks.paths().filter_map_weights(|weight| {
 });
 ```
 
-`paths()` also provides bounded raw traversal, path counts, weight partitioning, and a caller-buffer single-path view. See [Semantics](docs/semantics.md).
+`paths()` also provides bounded raw traversal, path counts, weight partitioning, and caller-buffer single-path views, including an inline `SmallVec` fast path. See [Semantics](docs/semantics.md).
 
 ## Linear fast path
 

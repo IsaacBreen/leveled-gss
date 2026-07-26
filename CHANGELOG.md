@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project follows sem
 
 ## [Unreleased]
 
+- Preserve the shared unweighted stack DAG during path-weight map and filter-map operations instead of rebuilding it.
+- Join different weights directly when they refer to the same immutable stack DAG, preserving the factored representation.
+- Add allocation-free single-path extraction into an inline `SmallVec` and keep bounded top-first traversal inline for common stack depths.
+
 ## [0.2.0] - Unreleased
 
 - Redesign the crate from first principles around weighted stack alternatives rather than exposing GLRMask's internal leveled representation.

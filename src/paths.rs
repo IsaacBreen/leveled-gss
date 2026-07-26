@@ -56,7 +56,7 @@ where
         max_paths: usize,
         mut visit: impl FnMut(&[S], &W),
     ) -> Result<(), PathLimitExceeded> {
-        let mut prefix = Vec::new();
+        let mut prefix = SmallVec::<[S; 64]>::new();
         let mut emitted = 0usize;
         if walk_w_bounded(
             &self.gss.root,
@@ -80,7 +80,34 @@ where
             return None;
         }
         output.clear();
-        single_w(&self.gss.root, output)
+        single_w_into(&self.gss.root, output)
+    }
+
+    /// Invoke `visit` with the only structural path in top-first order.
+    ///
+    /// Returns `None` unless exactly one structural path is represented. The
+    /// temporary path stays inline for depths up to 16, avoiding a heap
+    /// allocation in common linear-stack fast paths.
+    pub fn with_single_top_first<R>(&self, visit: impl FnOnce(&[S], &'gss W) -> R) -> Option<R> {
+        if self.gss.root.paths != 1 {
+            return None;
+        }
+        let mut output = SmallVec::<[S; 16]>::new();
+        let weight = single_w_into(&self.gss.root, &mut output)?;
+        Some(visit(&output, weight))
+    }
+
+    /// Write the only structural path into an inline top-first buffer.
+    ///
+    /// This is the allocation-free counterpart of [`Self::single_top_first`]
+    /// for hot paths that already use a [`SmallVec`]. The output is cleared
+    /// before use.
+    pub fn single_top_first_small(&self, output: &mut SmallVec<[S; 16]>) -> Option<&'gss W> {
+        if self.gss.root.paths != 1 {
+            return None;
+        }
+        output.clear();
+        single_w_into(&self.gss.root, output)
     }
 
     /// Transform every stored path-local weight while preserving sharing.
@@ -100,10 +127,9 @@ where
         V: Weight,
         F: FnMut(&W) -> Result<V, E>,
     {
-        let mut u_memo = FxHashMap::default();
         let mut w_memo = FxHashMap::default();
         Ok(WeightedGss {
-            root: try_map_w(&self.gss.root, &mut u_memo, &mut w_memo, &mut |weight| {
+            root: try_map_w(&self.gss.root, &mut w_memo, &mut |weight| {
                 map(weight).map(Some)
             })?,
         })
@@ -126,10 +152,9 @@ where
         V: Weight,
         F: FnMut(&W) -> Result<Option<V>, E>,
     {
-        let mut u_memo = FxHashMap::default();
         let mut w_memo = FxHashMap::default();
         Ok(WeightedGss {
-            root: try_map_w(&self.gss.root, &mut u_memo, &mut w_memo, &mut map)?,
+            root: try_map_w(&self.gss.root, &mut w_memo, &mut map)?,
         })
     }
 
@@ -186,34 +211,8 @@ where
     }
 }
 
-fn clone_u<S>(node: &URef<S>, memo: &mut FxHashMap<usize, URef<S>>) -> URef<S>
-where
-    S: Clone + Eq + Hash,
-{
-    let id = u_id(node);
-    if let Some(cached) = memo.get(&id) {
-        return cached.clone();
-    }
-    let cloned = match &node.kind {
-        UKind::Branch { empty, children } => {
-            let mut next = UChildren::default();
-            for (top, values) in children {
-                next.insert(
-                    top.clone(),
-                    values.iter().map(|child| clone_u(child, memo)).collect(),
-                );
-            }
-            u_branch(*empty, next)
-        }
-        UKind::Segment { values, next } => u_segment(values.clone(), clone_u(next, memo)),
-    };
-    memo.insert(id, cloned.clone());
-    cloned
-}
-
 fn try_map_w<S, W, V, E, F>(
     node: &WRef<S, W>,
-    u_memo: &mut FxHashMap<usize, URef<S>>,
     w_memo: &mut FxHashMap<usize, WRef<S, V>>,
     map: &mut F,
 ) -> Result<WRef<S, V>, E>
@@ -229,7 +228,9 @@ where
     }
     let mapped = match &node.kind {
         WKind::Shared { weight, stacks } => match map(weight.as_ref())? {
-            Some(weight) => w_shared(Arc::new(weight), clone_u(stacks, u_memo)),
+            // Weight transformations do not alter stack symbols. Keep the
+            // immutable unweighted DAG by Arc rather than rebuilding it.
+            Some(weight) => w_shared(Arc::new(weight), stacks.clone()),
             None => w_empty(),
         },
         WKind::Branch { empty, children } => {
@@ -242,7 +243,7 @@ where
             let mut mapped_children = WChildren::default();
             for (top, values) in children {
                 for child in values {
-                    let child = try_map_w(child, u_memo, w_memo, map)?;
+                    let child = try_map_w(child, w_memo, map)?;
                     if !w_is_empty(&child) {
                         mapped_children.entry(top.clone()).or_default().push(child);
                     }
@@ -283,13 +284,33 @@ fn collect_distinct_weights<S, W>(
     }
 }
 
-fn single_w<'a, S, W>(node: &'a WRef<S, W>, output: &mut Vec<S>) -> Option<&'a W>
+trait PathBuffer<S> {
+    fn push_symbol(&mut self, symbol: S);
+}
+
+impl<S> PathBuffer<S> for Vec<S> {
+    fn push_symbol(&mut self, symbol: S) {
+        self.push(symbol);
+    }
+}
+
+impl<S, A> PathBuffer<S> for SmallVec<A>
+where
+    A: smallvec::Array<Item = S>,
+{
+    fn push_symbol(&mut self, symbol: S) {
+        self.push(symbol);
+    }
+}
+
+fn single_w_into<'a, S, W, B>(node: &'a WRef<S, W>, output: &mut B) -> Option<&'a W>
 where
     S: Clone,
+    B: PathBuffer<S>,
 {
     match &node.kind {
         WKind::Shared { weight, stacks } => {
-            single_u(stacks, output)?;
+            single_u_into(stacks, output)?;
             Some(weight.as_ref())
         }
         WKind::Branch { empty, children } => {
@@ -303,20 +324,23 @@ where
             if entries.next().is_some() || !empty.is_empty() {
                 return None;
             }
-            output.push(top.clone());
-            single_w(child, output)
+            output.push_symbol(top.clone());
+            single_w_into(child, output)
         }
     }
 }
 
-fn single_u<S>(node: &URef<S>, output: &mut Vec<S>) -> Option<()>
+fn single_u_into<S, B>(node: &URef<S>, output: &mut B) -> Option<()>
 where
     S: Clone,
+    B: PathBuffer<S>,
 {
     match &node.kind {
         UKind::Segment { values, next } => {
-            output.extend(values.iter().cloned());
-            single_u(next, output)
+            for value in values.iter() {
+                output.push_symbol(value.clone());
+            }
+            single_u_into(next, output)
         }
         UKind::Branch { empty, children } => {
             if *empty && children.is_empty() {
@@ -329,8 +353,8 @@ where
             if entries.next().is_some() || *empty {
                 return None;
             }
-            output.push(top.clone());
-            single_u(child, output)
+            output.push_symbol(top.clone());
+            single_u_into(child, output)
         }
     }
 }
@@ -394,7 +418,7 @@ where
 
 fn walk_w_bounded<S, W>(
     node: &WRef<S, W>,
-    prefix: &mut Vec<S>,
+    prefix: &mut SmallVec<[S; 64]>,
     limit: usize,
     emitted: &mut usize,
     visit: &mut impl FnMut(&[S], &W),
@@ -433,7 +457,7 @@ where
 
 fn walk_u_bounded<S>(
     node: &URef<S>,
-    prefix: &mut Vec<S>,
+    prefix: &mut SmallVec<[S; 64]>,
     limit: usize,
     emitted: &mut usize,
     emit: &mut impl FnMut(&[S]),
@@ -569,6 +593,76 @@ fn count_u<S>(node: &URef<S>, seen: &mut FxHashSet<usize>, edges: &mut usize) {
         UKind::Segment { next, .. } => {
             *edges = edges.saturating_add(1);
             count_u(next, seen, edges);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct Bits(u8);
+
+    impl Weight for Bits {
+        fn join(&self, other: &Self) -> Self {
+            Self(self.0 | other.0)
+        }
+        fn equivalent(&self, other: &Self) -> bool {
+            self == other
+        }
+    }
+
+    #[test]
+    fn merging_different_weights_on_the_same_stack_dag_stays_factored() {
+        let original = WeightedGss::from_stacks_with_weight(
+            [vec![1_u8, 2, 3], vec![1, 2, 4], vec![1, 5]],
+            Bits(1),
+        );
+        let mapped = original.paths().map_weights(|_| Bits(2));
+        let merged = original.merge(&mapped);
+
+        assert_eq!(merged.paths().count_at_most(usize::MAX), 3);
+        assert!(
+            merged
+                .to_stacks(3)
+                .unwrap()
+                .into_iter()
+                .all(|(_, weight)| weight == Bits(3))
+        );
+        let WKind::Shared {
+            stacks: original_stacks,
+            ..
+        } = &original.root.kind
+        else {
+            panic!("homogeneous constructor must create a shared-weight root");
+        };
+        let WKind::Shared { stacks, .. } = &merged.root.kind else {
+            panic!("same-language merge must remain a shared-weight root");
+        };
+        assert!(Arc::ptr_eq(original_stacks, stacks));
+    }
+
+    #[test]
+    fn weight_transforms_reuse_homogeneous_stack_dag() {
+        let original = WeightedGss::from_stacks_with_weight(
+            [vec![1_u8, 2, 3], vec![1, 2, 4], vec![1, 5]],
+            Bits(1),
+        );
+        let mapped = original.paths().map_weights(|_| Bits(2));
+        let filtered = original.paths().filter_map_weights(|_| Some(Bits(4)));
+        let WKind::Shared {
+            stacks: original_stacks,
+            ..
+        } = &original.root.kind
+        else {
+            panic!("homogeneous constructor must create a shared-weight root");
+        };
+        for transformed in [&mapped, &filtered] {
+            let WKind::Shared { stacks, .. } = &transformed.root.kind else {
+                panic!("weight-only transform must keep a shared-weight root");
+            };
+            assert!(Arc::ptr_eq(original_stacks, stacks));
         }
     }
 }
