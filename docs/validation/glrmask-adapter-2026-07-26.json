@@ -1,0 +1,466 @@
+{
+  "coverage": {
+    "requested": 226,
+    "common_built": 222,
+    "adapter_before_built": 223,
+    "baseline_built": 222,
+    "adapter_after_built": 223,
+    "baseline_only": [],
+    "adapter_before_only": [
+      "jsb/data/Github_hard---o9882"
+    ],
+    "adapter_after_only": [
+      "jsb/data/Github_hard---o9882"
+    ],
+    "paired_examples": 1060,
+    "paired_steps": 611642
+  },
+  "semantic_mismatches": 0,
+  "runtime": {
+    "mask": {
+      "unit": "microseconds",
+      "adapter_before": {
+        "count": 306602,
+        "mean": 1.9905539559428838,
+        "p50": 1.875,
+        "p90": 2.875,
+        "p99": 5.083,
+        "p99_9": 9.625,
+        "p99_99": 16.15355160000175,
+        "max": 21.5,
+        "sum": 610307.824
+      },
+      "baseline": {
+        "count": 306602,
+        "mean": 1.885106222399071,
+        "p50": 1.7910000000000001,
+        "p90": 2.6670000000000003,
+        "p99": 4.667000000000001,
+        "p99_9": 7.850358999999007,
+        "p99_99": 12.263935900000856,
+        "max": 22.166,
+        "sum": 577977.338
+      },
+      "adapter_after": {
+        "count": 306602,
+        "mean": 1.923969520746766,
+        "p50": 1.8339999999999999,
+        "p90": 2.708,
+        "p99": 4.5,
+        "p99_9": 8.333,
+        "p99_99": 13.528211700001732,
+        "max": 19.75,
+        "sum": 589892.9029999999
+      },
+      "before_vs_baseline": {
+        "count": 306602,
+        "baseline_total": 577977.3380000001,
+        "other_total": 610307.8239999999,
+        "total_change_percent": 5.59372900534032,
+        "geometric_mean_change_percent": 5.4324301129439645,
+        "other_faster": 49949,
+        "equal": 13366,
+        "other_slower": 243287,
+        "mean_delta": 0.1054477335438125,
+        "median_delta": 0.0830000000000001
+      },
+      "after_vs_baseline": {
+        "count": 306602,
+        "baseline_total": 577977.3380000001,
+        "other_total": 589892.9029999999,
+        "total_change_percent": 2.061597266292803,
+        "geometric_mean_change_percent": 2.6935130495018056,
+        "other_faster": 55603,
+        "equal": 16289,
+        "other_slower": 234710,
+        "mean_delta": 0.038863298347695065,
+        "median_delta": 0.08299999999999988
+      },
+      "bracket_midpoint_vs_baseline": {
+        "count": 306602,
+        "baseline_total": 577977.3380000001,
+        "other_total": 600100.3635,
+        "total_change_percent": 3.8276631358165725,
+        "geometric_mean_change_percent": 4.152277154222461,
+        "other_faster": 52417,
+        "equal": 3552,
+        "other_slower": 250633,
+        "mean_delta": 0.07215551594575378,
+        "median_delta": 0.08349999999999992
+      },
+      "adapter_drift_percent": -3.3450203646742005
+    },
+    "commit": {
+      "unit": "microseconds",
+      "adapter_before": {
+        "count": 305924,
+        "mean": 1.5569561950026805,
+        "p50": 1.334,
+        "p90": 2.6670000000000003,
+        "p99": 4.75,
+        "p99_9": 9.458,
+        "p99_99": 17.225715699999245,
+        "max": 23.25,
+        "sum": 476310.267
+      },
+      "baseline": {
+        "count": 305924,
+        "mean": 1.5249493468966149,
+        "p50": 1.375,
+        "p90": 2.584,
+        "p99": 4.417,
+        "p99_9": 6.8340000000000005,
+        "p99_99": 10.641715699999244,
+        "max": 13.375,
+        "sum": 466518.604
+      },
+      "adapter_after": {
+        "count": 305924,
+        "mean": 1.441691096481479,
+        "p50": 1.291,
+        "p90": 2.375,
+        "p99": 3.875,
+        "p99_9": 7.916,
+        "p99_99": 14.02608589999692,
+        "max": 19.584,
+        "sum": 441047.907
+      },
+      "before_vs_baseline": {
+        "count": 305924,
+        "baseline_total": 466518.604,
+        "other_total": 476310.267,
+        "total_change_percent": 2.098879426467626,
+        "geometric_mean_change_percent": 0.7562027751447653,
+        "other_faster": 123034,
+        "equal": 30049,
+        "other_slower": 152841,
+        "mean_delta": 0.032006848106065564,
+        "median_delta": 0.0
+      },
+      "after_vs_baseline": {
+        "count": 305924,
+        "baseline_total": 466518.604,
+        "other_total": 441047.907,
+        "total_change_percent": -5.459738750311438,
+        "geometric_mean_change_percent": -4.611911265968538,
+        "other_faster": 144543,
+        "equal": 39646,
+        "other_slower": 121735,
+        "mean_delta": -0.08325825041513578,
+        "median_delta": 0.0
+      },
+      "bracket_midpoint_vs_baseline": {
+        "count": 305924,
+        "baseline_total": 466518.604,
+        "other_total": 458679.08700000006,
+        "total_change_percent": -1.6804296619219006,
+        "geometric_mean_change_percent": -1.5991439826697595,
+        "other_faster": 136011,
+        "equal": 12553,
+        "other_slower": 157360,
+        "mean_delta": -0.025625701154535118,
+        "median_delta": 0.0005000000000002494
+      },
+      "adapter_drift_percent": -7.403233237464524
+    },
+    "tbm": {
+      "unit": "microseconds",
+      "adapter_before": {
+        "count": 305924,
+        "mean": 3.60677848419869,
+        "p50": 3.2910000000000004,
+        "p90": 5.250000000000001,
+        "p99": 8.833,
+        "p99_9": 16.083000000000002,
+        "p99_99": 29.458407699999984,
+        "max": 36.542,
+        "sum": 1103400.101
+      },
+      "baseline": {
+        "count": 305924,
+        "mean": 3.466324920568507,
+        "p50": 3.208,
+        "p90": 5.0,
+        "p99": 8.083,
+        "p99_9": 11.95807699999999,
+        "p99_99": 20.15409679998923,
+        "max": 25.625,
+        "sum": 1060431.9849999999
+      },
+      "adapter_after": {
+        "count": 305924,
+        "mean": 3.417025277519907,
+        "p50": 3.1670000000000003,
+        "p90": 4.875,
+        "p99": 7.459,
+        "p99_9": 13.5,
+        "p99_99": 24.308531099999204,
+        "max": 29.916999999999998,
+        "sum": 1045350.041
+      },
+      "before_vs_baseline": {
+        "count": 305924,
+        "baseline_total": 1060431.985,
+        "other_total": 1103400.101,
+        "total_change_percent": 4.051944547862729,
+        "geometric_mean_change_percent": 3.3032997458819047,
+        "other_faster": 91610,
+        "equal": 7250,
+        "other_slower": 207064,
+        "mean_delta": 0.14045356363018266,
+        "median_delta": 0.08400000000000038
+      },
+      "after_vs_baseline": {
+        "count": 305924,
+        "baseline_total": 1060431.985,
+        "other_total": 1045350.0410000001,
+        "total_change_percent": -1.4222452937422525,
+        "geometric_mean_change_percent": -1.0416758867440312,
+        "other_faster": 109691,
+        "equal": 8645,
+        "other_slower": 187588,
+        "mean_delta": -0.0492996430486003,
+        "median_delta": 0.042999999999999844
+      },
+      "bracket_midpoint_vs_baseline": {
+        "count": 305924,
+        "baseline_total": 1060431.985,
+        "other_total": 1074375.071,
+        "total_change_percent": 1.3148496270602328,
+        "geometric_mean_change_percent": 1.288921962556877,
+        "other_faster": 93614,
+        "equal": 1944,
+        "other_slower": 210366,
+        "mean_delta": 0.04557696029079119,
+        "median_delta": 0.08450000000000021
+      },
+      "adapter_drift_percent": -5.261016375419025
+    }
+  },
+  "build": {
+    "unit": "milliseconds",
+    "adapter_before": {
+      "count": 222,
+      "mean": 358.1538666931174,
+      "p50": 141.84200018644333,
+      "p90": 911.6238112328575,
+      "p99": 2491.413731379434,
+      "p99_9": 3858.201123787089,
+      "p99_99": 3935.9572998726762,
+      "max": 3944.5968749932945,
+      "sum": 79510.15840587206
+    },
+    "baseline": {
+      "count": 222,
+      "mean": 325.77380441078867,
+      "p50": 155.00339586287737,
+      "p90": 925.502040470019,
+      "p99": 1869.5532297156747,
+      "p99_9": 2200.1548803483597,
+      "p99_99": 2214.705773681193,
+      "max": 2216.322539607063,
+      "sum": 72321.78457919508
+    },
+    "adapter_after": {
+      "count": 222,
+      "mean": 291.23126259514106,
+      "p50": 121.91208335570991,
+      "p90": 879.3503167573363,
+      "p99": 1844.167923128698,
+      "p99_9": 2159.8078992345827,
+      "p99_99": 2219.460628201605,
+      "max": 2226.0887091979384,
+      "sum": 64653.340296121314
+    },
+    "adapter_drift_percent": -18.685433921426487,
+    "before_vs_baseline": {
+      "count": 222,
+      "baseline_total": 72321.78457919508,
+      "other_total": 79510.15840587206,
+      "total_change_percent": 9.939430931499537,
+      "geometric_mean_change_percent": -7.61453107188742,
+      "other_faster": 148,
+      "equal": 0,
+      "other_slower": 74,
+      "mean_delta": 32.38006228232874,
+      "median_delta": -7.164854439906776
+    },
+    "after_vs_baseline": {
+      "count": 222,
+      "baseline_total": 72321.78457919508,
+      "other_total": 64653.340296121314,
+      "total_change_percent": -10.603228788798113,
+      "geometric_mean_change_percent": -18.104188779418617,
+      "other_faster": 186,
+      "equal": 0,
+      "other_slower": 36,
+      "mean_delta": -34.5425418156476,
+      "median_delta": -24.001333164051175
+    },
+    "bracket_midpoint_vs_baseline": {
+      "count": 222,
+      "baseline_total": 72321.78457919508,
+      "other_total": 72081.74935099669,
+      "total_change_percent": -0.33189892864928794,
+      "geometric_mean_change_percent": -12.255215205232773,
+      "other_faster": 155,
+      "equal": 0,
+      "other_slower": 67,
+      "mean_delta": -1.0812397666594333,
+      "median_delta": -10.423480009194463
+    }
+  },
+  "sum_tbm": {
+    "unit": "microseconds",
+    "adapter_before": {
+      "count": 1060,
+      "mean": 1040.943491509434,
+      "p50": 231.451,
+      "p90": 2845.3160000000003,
+      "p99": 9906.137510000004,
+      "p99_9": 21059.193868000002,
+      "p99_99": 26040.548486899894,
+      "max": 26630.243000000002,
+      "sum": 1103400.101
+    },
+    "baseline": {
+      "count": 1060,
+      "mean": 1000.4075330188678,
+      "p50": 214.183,
+      "p90": 3109.3552,
+      "p99": 9056.913610000049,
+      "p99_9": 20481.599689000002,
+      "p99_99": 21742.621225099974,
+      "max": 21891.719,
+      "sum": 1060431.9849999999
+    },
+    "adapter_after": {
+      "count": 1060,
+      "mean": 986.1792839622641,
+      "p50": 218.0775,
+      "p90": 2841.4969000000006,
+      "p99": 9074.08128,
+      "p99_9": 21048.583811,
+      "p99_99": 22275.34894529997,
+      "max": 22420.266,
+      "sum": 1045350.041
+    },
+    "adapter_drift_percent": -5.261016375419036,
+    "before_vs_baseline": {
+      "count": 1060,
+      "baseline_total": 1060431.9849999999,
+      "other_total": 1103400.101,
+      "total_change_percent": 4.051944547862751,
+      "geometric_mean_change_percent": 4.467383377169809,
+      "other_faster": 202,
+      "equal": 7,
+      "other_slower": 851,
+      "mean_delta": 40.535958490566045,
+      "median_delta": 4.714499999999994
+    },
+    "after_vs_baseline": {
+      "count": 1060,
+      "baseline_total": 1060431.9849999999,
+      "other_total": 1045350.0409999999,
+      "total_change_percent": -1.4222452937422525,
+      "geometric_mean_change_percent": 0.3334461588941018,
+      "other_faster": 223,
+      "equal": 9,
+      "other_slower": 828,
+      "mean_delta": -14.228249056603772,
+      "median_delta": 3.0655
+    },
+    "bracket_midpoint_vs_baseline": {
+      "count": 1060,
+      "baseline_total": 1060431.9849999999,
+      "other_total": 1074375.071,
+      "total_change_percent": 1.314849627060255,
+      "geometric_mean_change_percent": 2.5048598028290847,
+      "other_faster": 193,
+      "equal": 7,
+      "other_slower": 860,
+      "mean_delta": 13.153854716981133,
+      "median_delta": 4.71149999999999
+    }
+  },
+  "ttfm": {
+    "unit": "milliseconds",
+    "adapter_before": {
+      "count": 1060,
+      "mean": 361.07709946233575,
+      "p50": 165.0811865466535,
+      "p90": 873.4795451779698,
+      "p99": 2931.9427852853237,
+      "p99_9": 3944.5984111552943,
+      "p99_99": 3944.5984168873943,
+      "max": 3944.5984169932944,
+      "sum": 382741.7254300759
+    },
+    "baseline": {
+      "count": 1060,
+      "mean": 319.40240962932796,
+      "p50": 162.1673340803385,
+      "p90": 925.4292501756786,
+      "p99": 1952.1691689938423,
+      "p99_9": 2216.323414607063,
+      "p99_99": 2216.323414607063,
+      "max": 2216.323414607063,
+      "sum": 338566.55420708767
+    },
+    "adapter_after": {
+      "count": 1060,
+      "mean": 284.1997655685045,
+      "p50": 140.6431248058144,
+      "p90": 876.576999698722,
+      "p99": 1926.1763749429392,
+      "p99_9": 2226.0896623009385,
+      "p99_99": 2226.0897414082383,
+      "max": 2226.0897501979384,
+      "sum": 301251.7515026148
+    },
+    "adapter_drift_percent": -21.291113174528654,
+    "before_vs_baseline": {
+      "count": 1060,
+      "baseline_total": 338566.55420708767,
+      "other_total": 382741.7254300759,
+      "total_change_percent": 13.047706772585709,
+      "geometric_mean_change_percent": -5.130366747367432,
+      "other_faster": 658,
+      "equal": 0,
+      "other_slower": 402,
+      "mean_delta": 41.67468983300778,
+      "median_delta": -2.9171878554522976
+    },
+    "after_vs_baseline": {
+      "count": 1060,
+      "baseline_total": 338566.55420708767,
+      "other_total": 301251.75150261476,
+      "total_change_percent": -11.021408417574808,
+      "geometric_mean_change_percent": -17.5085098989327,
+      "other_faster": 879,
+      "equal": 0,
+      "other_slower": 181,
+      "mean_delta": -35.202644060823445,
+      "median_delta": -24.841500731210594
+    },
+    "bracket_midpoint_vs_baseline": {
+      "count": 1060,
+      "baseline_total": 338566.55420708767,
+      "other_total": 341996.7384663454,
+      "total_change_percent": 1.013149177505479,
+      "geometric_mean_change_percent": -10.617616478581516,
+      "other_faster": 703,
+      "equal": 0,
+      "other_slower": 357,
+      "mean_delta": 3.236022886092169,
+      "median_delta": -6.502895521386321
+    }
+  },
+  "wall": {
+    "adapter_before": 910.5674742078409,
+    "baseline": 984.3777647500392,
+    "adapter_after": 752.1811350830831,
+    "bracket_midpoint": 831.374304645462,
+    "bracket_midpoint_vs_baseline_percent": -15.543164990467762
+  }
+}
