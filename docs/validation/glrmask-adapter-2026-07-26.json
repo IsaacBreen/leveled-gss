@@ -1,11 +1,6 @@
 {
   "schema": "weighted-gss/glrmask-validation/v2",
   "date": "2026-07-26",
-  "final_revisions": {
-    "weighted_gss": "59bebf9550d8b53c244f9e3b17d7bafacda1d343",
-    "glrmask_adapter": "de33574931371e940d242996292554b31e550e7a",
-    "cfa": "66415b0af3348ebd886021ac7627ce6ebe44f016"
-  },
   "environment": {
     "machine": "Apple M1 Pro MacBook Pro",
     "cpu_cores": 10,
@@ -215,5 +210,12 @@
     "glrmask_tests_passed": 855,
     "glrmask_tests_failed": 0,
     "glrmask_tests_ignored": 2
+  },
+  "scope": "historical_pre_api_reduction_stress_test",
+  "public_api_status": "The tested adapter used a broader candidate. Parser-specific facilities exercised here are not part of the final weighted-gss 0.2 public API.",
+  "tested_revisions": {
+    "weighted_gss": "59bebf9550d8b53c244f9e3b17d7bafacda1d343",
+    "glrmask_adapter": "de33574931371e940d242996292554b31e550e7a",
+    "cfa": "66415b0af3348ebd886021ac7627ce6ebe44f016"
   }
 }

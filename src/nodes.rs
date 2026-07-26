@@ -378,54 +378,12 @@ where
     }
 }
 
+#[cfg(feature = "python")]
 pub(crate) fn u_retain_empty<S>(node: &URef<S>) -> URef<S> {
     if u_has_empty(node) {
         u_end()
     } else {
         u_empty()
-    }
-}
-
-pub(crate) fn u_retain_where_at_depth<S, F>(node: &URef<S>, depth: usize, keep: &mut F) -> URef<S>
-where
-    S: Clone + Eq + Hash,
-    F: FnMut(&S) -> bool,
-{
-    match &node.kind {
-        UKind::Segment { values, next } => {
-            if depth < values.len() {
-                if keep(values.get(depth).expect("depth checked")) {
-                    node.clone()
-                } else {
-                    u_empty()
-                }
-            } else {
-                u_segment(
-                    values.clone(),
-                    u_retain_where_at_depth(next, depth - values.len(), keep),
-                )
-            }
-        }
-        UKind::Branch { children, .. } => {
-            let mut kept = UChildren::default();
-            if depth == 0 {
-                for (top, values) in children {
-                    if keep(top) {
-                        kept.insert(top.clone(), values.clone());
-                    }
-                }
-            } else {
-                for (top, values) in children {
-                    for child in values {
-                        let filtered = u_retain_where_at_depth(child, depth - 1, keep);
-                        if !u_is_empty(&filtered) {
-                            kept.entry(top.clone()).or_default().push(filtered);
-                        }
-                    }
-                }
-            }
-            u_branch(false, kept)
-        }
     }
 }
 
@@ -801,6 +759,7 @@ where
     }
 }
 
+#[cfg(feature = "python")]
 pub(crate) fn w_retain_empty<S, W>(node: &WRef<S, W>) -> WRef<S, W>
 where
     S: Clone + Eq + Hash,
@@ -808,42 +767,6 @@ where
     match &node.kind {
         WKind::Shared { weight, stacks } => w_shared(weight.clone(), u_retain_empty(stacks)),
         WKind::Branch { empty, .. } => w_branch(empty.clone(), WChildren::default()),
-    }
-}
-
-pub(crate) fn w_retain_where_at_depth<S, W, F>(
-    node: &WRef<S, W>,
-    depth: usize,
-    keep: &mut F,
-) -> WRef<S, W>
-where
-    S: Clone + Eq + Hash,
-    F: FnMut(&S) -> bool,
-{
-    match &node.kind {
-        WKind::Shared { weight, stacks } => {
-            w_shared(weight.clone(), u_retain_where_at_depth(stacks, depth, keep))
-        }
-        WKind::Branch { children, .. } => {
-            let mut kept = WChildren::default();
-            if depth == 0 {
-                for (top, values) in children {
-                    if keep(top) {
-                        kept.insert(top.clone(), values.clone());
-                    }
-                }
-            } else {
-                for (top, values) in children {
-                    for child in values {
-                        let filtered = w_retain_where_at_depth(child, depth - 1, keep);
-                        if !w_is_empty(&filtered) {
-                            kept.entry(top.clone()).or_default().push(filtered);
-                        }
-                    }
-                }
-            }
-            w_branch(SmallVec::new(), kept)
-        }
     }
 }
 
@@ -876,6 +799,7 @@ where
     out
 }
 
+#[cfg(feature = "python")]
 pub(crate) fn w_empty_weight<S, W>(node: &WRef<S, W>) -> Option<W>
 where
     W: Weight,

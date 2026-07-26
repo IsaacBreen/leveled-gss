@@ -60,4 +60,4 @@ Both methods may legitimately return `None` for an unweighted GSS; absence is th
 - `max_depth()` returns the maximum stack depth.
 - `to_stacks(max_paths=4096)` materialises canonical `(stack, weight)` pairs. It raises `OverflowError` rather than silently traversing more than the requested number of structural paths.
 
-The Python binding intentionally does not expose raw structural paths, representation IDs, the stack-language interner, or `VirtualStack`. Those are Rust facilities for implementing high-performance stack machines.
+The Python binding intentionally exposes only semantic stack operations. Raw graph structure and implementation-specific parser machinery are not part of the supported API.

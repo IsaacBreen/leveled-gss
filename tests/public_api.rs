@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use weighted_gss::{Gss, StackOp, Weight, WeightedGss};
+use weighted_gss::{Gss, Weight, WeightedGss};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Bits(u32);
@@ -11,7 +11,7 @@ impl Weight for Bits {
 }
 
 #[test]
-fn public_api_reads_like_stack_operations() {
+fn public_api_reads_like_weighted_stack_operations() {
     let left = WeightedGss::from_stack([0_u8, 1, 2], Bits(1));
     let right = WeightedGss::from_stack([0_u8, 1, 3], Bits(2));
     let stacks = left.merge(&right);
@@ -22,17 +22,9 @@ fn public_api_reads_like_stack_operations() {
     );
     assert_eq!(stacks.top(), None);
 
-    let branch = stacks.pop_top(&2);
-    assert_eq!(branch.top(), Some(1));
-    assert_eq!(branch.to_stacks(8).unwrap(), vec![(vec![0, 1], Bits(1))]);
-
-    let shifted = stacks.apply_top_ops([(2, StackOp::new(1, [8])), (3, StackOp::new(0, [9]))]);
-    let mut materialized = shifted.to_stacks(8).unwrap();
-    materialized.sort_by(|a, b| a.0.cmp(&b.0));
-    assert_eq!(
-        materialized,
-        vec![(vec![0, 1, 3, 9], Bits(2)), (vec![0, 1, 8], Bits(1)),]
-    );
+    let branch = stacks.pop_top(&2).push(8);
+    assert_eq!(branch.top(), Some(8));
+    assert_eq!(branch.to_stacks(8).unwrap(), vec![(vec![0, 1, 8], Bits(1))]);
 }
 
 #[test]
