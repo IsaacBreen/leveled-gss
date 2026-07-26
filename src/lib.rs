@@ -7,6 +7,9 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+#[cfg(feature = "engine")]
+pub mod engine;
+
 mod gss;
 mod nodes;
 mod paths;

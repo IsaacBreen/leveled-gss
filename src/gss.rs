@@ -198,8 +198,9 @@ where
         }
     }
 
-    #[cfg(feature = "python")]
-    pub(crate) fn retain_empty(&self) -> Self {
+    /// Retain only the empty-stack alternative.
+    #[must_use]
+    pub fn retain_empty(&self) -> Self {
         Self {
             root: w_retain_empty(&self.root),
         }

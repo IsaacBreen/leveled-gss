@@ -21,6 +21,7 @@ fn public_api_reads_like_weighted_stack_operations() {
         BTreeSet::from([2, 3])
     );
     assert_eq!(stacks.top(), None);
+    assert!(stacks.retain_empty().is_empty());
 
     let branch = stacks.pop_top(&2).push(8);
     assert_eq!(branch.top(), Some(8));

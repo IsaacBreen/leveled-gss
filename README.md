@@ -6,7 +6,7 @@ A persistent weighted graph-structured stack.
 
 `WeightedGss<S, W>` represents a finite collection of stack alternatives. Each stack carries a weight. When stack operations make alternatives denote the same concrete stack, their weights are joined.
 
-The graph representation is private. The Rust API is deliberately limited to construction, merging, ordinary stack operations, top selection, and bounded materialisation.
+The graph representation is private. The default Rust API is deliberately limited to construction, merging, ordinary stack operations, top selection, and bounded materialisation. High-performance parser engines can opt into a small advanced module without exposing graph internals.
 
 ## Installation
 
@@ -72,10 +72,28 @@ The core methods are:
 - construction: `new`, `from_stack`, `from_stacks`, `from_stacks_with_weight`;
 - alternatives: `merge`;
 - stack operations: `push`, `pop`, `popn`;
-- top selection: `top`, `tops`, `has_empty_stack`, `retain_top`, `pop_top`;
+- top selection: `top`, `tops`, `has_empty_stack`, `retain_top`, `retain_empty`, `pop_top`;
 - observations: `is_empty`, `max_depth`, `joined_weight`, `to_stacks`.
 
 `to_stacks(max_paths)` returns canonical `(stack, weight)` pairs and fails rather than silently exceeding the requested structural traversal bound.
+
+## Optional engine API
+
+Parser and state-machine implementations can enable a compact set of operations that avoid materialising shared stack languages:
+
+```toml
+[dependencies]
+weighted-gss = { version = "0.2", features = ["engine"] }
+```
+
+The opt-in `weighted_gss::engine` module contains only:
+
+- `path_weights` and `filter_map_path_weights` for explicitly representation-local weight work;
+- `for_each_stack_top_first` for bounded, allocation-light concrete-stack inspection;
+- `linear_prefix` and `LinearPrefix` for mutating a homogeneous linear top prefix while retaining its hidden floor;
+- `StackLanguageInterner` and `StackLanguageId` for exact fixpoint keys.
+
+Batched parser actions, depth filters, representation IDs, structural statistics, and graph nodes remain application-local or private. See [Engine API](docs/engine.md).
 
 ## Python
 
@@ -107,7 +125,7 @@ Python weights need not be hashable. Exceptions raised by `join()` are propagate
 
 The implementation is tested against an explicit stack-to-weight map under randomized sequences of construction, merge, push, pop, top selection, and branch selection. Rust 1.85 is the declared minimum version.
 
-A previous broader candidate was also used to implement and benchmark GLRMask as an implementation stress test. Parser-specific traversal, virtual-stack, operation-batching, and language-interning facilities exercised by that adapter are intentionally **not** part of the 0.2 public API.
+The opt-in engine API is validated by adapting GLRMask without exposing graph nodes or restoring its historical convenience surface. The ordinary default API remains independent of parser-engine concerns.
 
 See [Semantics and invariants](docs/semantics.md).
 

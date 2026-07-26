@@ -378,7 +378,6 @@ where
     }
 }
 
-#[cfg(feature = "python")]
 pub(crate) fn u_retain_empty<S>(node: &URef<S>) -> URef<S> {
     if u_has_empty(node) {
         u_end()
@@ -759,7 +758,6 @@ where
     }
 }
 
-#[cfg(feature = "python")]
 pub(crate) fn w_retain_empty<S, W>(node: &WRef<S, W>) -> WRef<S, W>
 where
     S: Clone + Eq + Hash,

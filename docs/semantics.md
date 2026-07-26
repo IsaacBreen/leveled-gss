@@ -31,7 +31,7 @@ These are different:
 - `WeightedGss::new()` contains no alternatives;
 - `WeightedGss::from_stack([], weight)` contains one alternative: the empty stack.
 
-`is_empty()` tests the first condition. `has_empty_stack()` tests the second.
+`is_empty()` tests the first condition. `has_empty_stack()` tests the second. `retain_empty()` selects only that empty-stack alternative.
 
 ## Stack operations
 
@@ -63,8 +63,8 @@ Operations return new values and retain immutable sharing where possible. Existi
 
 `WeightedGss` deliberately does not implement equality or hashing. Representation equality, raw-path equality, and equality of the extensional stack-to-weight mapping are distinct concepts.
 
-## Deliberately excluded API
+## Optional engine boundary
 
-The crate does not expose raw graph paths, representation IDs, virtual-stack views, batched parser stack effects, structural profiling, or canonical stack-language IDs.
+The default API does not expose graph paths, representation IDs, structural profiling, parser stack effects, or canonical language machinery.
 
-Those mechanisms were useful while stress-testing the implementation inside GLRMask, but they are not part of the weighted-stack abstraction and are not required to use the crate.
+With the `engine` feature enabled, a deliberately small module exposes representation-local path-weight operations, bounded semantic stack inspection, a linear-prefix view, and exact unweighted stack-language keys. These operations preserve sharing without making graph layout itself public. Their contracts are documented in [Engine API](engine.md).

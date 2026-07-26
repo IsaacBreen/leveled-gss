@@ -5,15 +5,16 @@ All notable changes to this project are documented here. The project follows sem
 ## [0.2.0] - Unreleased
 
 - Redesign the crate around a small semantic abstraction: weighted stack alternatives, merging, ordinary stack operations, top selection, and bounded canonical materialisation.
-- Keep the graph representation and all parser-engine machinery private.
-- Export only `Weight`, `WeightedGss`, the unweighted `Gss` alias, and `PathLimitExceeded`.
+- Keep the graph representation private and the default API independent of parser-engine machinery.
+- Export only `Weight`, `WeightedGss`, the unweighted `Gss` alias, and `PathLimitExceeded` by default.
 - Add persistent constructors for independently weighted stacks and homogeneous alternatives that share one weight.
 - Use ordinary equality to factor equal weights over shared stack languages.
 - Preserve immutable stack DAG sharing and share terminal stack suffixes across constructed alternatives.
 - Rebuild the Python 3.8+ ABI3 binding around semantic stack operations, typed stubs, unhashable weights, and normal propagation of Python callback exceptions.
-- Remove representation identity, structural profiling, path traversal, virtual stacks, batched stack operations, and stack-language interning from the supported Rust API.
+- Add an opt-in `engine` module containing only path-weight access and filtering, bounded concrete-stack inspection, a linear-prefix view, and exact stack-language keys.
+- Remove representation identity, structural profiling, raw graph traversal, batched stack operations, and parser-specific conveniences from the supported Rust API.
 - Validate core semantics against an explicit stack-to-weight map and test the declared Rust 1.85 minimum in CI.
-- Retain the previous GLRMask adapter as historical implementation and performance evidence, not as the specification of the public crate surface.
+- Validate the opt-in engine surface through a GLRMask adapter while keeping GLRMask-specific conveniences in GLRMask.
 
 ## [0.1.0] - 2026-07-24
 
