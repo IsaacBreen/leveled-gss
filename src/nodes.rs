@@ -109,6 +109,14 @@ pub(crate) fn u_has_empty<S>(node: &URef<S>) -> bool {
     }
 }
 
+#[inline]
+fn u_is_end<S>(node: &URef<S>) -> bool {
+    matches!(
+        &node.kind,
+        UKind::Branch { empty: true, children } if children.is_empty()
+    )
+}
+
 pub(crate) fn u_segment<S>(values: Segment<S>, next: URef<S>) -> URef<S>
 where
     S: Clone,
@@ -203,6 +211,9 @@ where
         return right.clone();
     }
     if u_is_empty(right) {
+        return left.clone();
+    }
+    if u_is_end(left) && u_is_end(right) {
         return left.clone();
     }
     if let (
@@ -920,4 +931,19 @@ pub(crate) fn join_into<W: Weight>(out: &mut Option<W>, value: &W) {
         Some(current) => current.join(value),
         None => value.clone(),
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merging_terminal_suffixes_reuses_one_node() {
+        let left = u_end::<u8>();
+        let right = u_end::<u8>();
+
+        let merged = u_merge(&left, &right);
+
+        assert!(Arc::ptr_eq(&merged, &left));
+    }
 }

@@ -79,10 +79,25 @@ where
     S: Clone + Eq + Hash,
     W: Weight,
 {
+    fn from_stack_with_end(stack: impl IntoIterator<Item = S>, weight: W, end: &URef<S>) -> Self {
+        let values: Vec<S> = stack.into_iter().collect();
+        let stacks = if values.is_empty() {
+            end.clone()
+        } else {
+            u_segment(
+                Segment::from_top_first(values.into_iter().rev().collect()),
+                end.clone(),
+            )
+        };
+        Self {
+            root: w_shared(Arc::new(weight), stacks),
+        }
+    }
+
     /// Construct a GSS containing one bottom-to-top stack.
     #[must_use]
     pub fn from_stack(stack: impl IntoIterator<Item = S>, weight: W) -> Self {
-        Self::from_stacks_with_weight([stack], weight)
+        Self::from_stack_with_end(stack, weight, &u_end())
     }
 
     /// Construct a GSS from multiple stacks that all carry one shared weight.
@@ -96,14 +111,15 @@ where
         I: IntoIterator<Item = T>,
         T: IntoIterator<Item = S>,
     {
+        let end = u_end();
         let stacks = u_merge_all(stacks.into_iter().map(|stack| {
             let values: Vec<S> = stack.into_iter().collect();
             if values.is_empty() {
-                u_end()
+                end.clone()
             } else {
                 u_segment(
                     Segment::from_top_first(values.into_iter().rev().collect()),
-                    u_end(),
+                    end.clone(),
                 )
             }
         }));
@@ -123,10 +139,11 @@ where
         I: IntoIterator<Item = (T, W)>,
         T: IntoIterator<Item = S>,
     {
+        let end = u_end();
         Self::merge_all(
             stacks
                 .into_iter()
-                .map(|(stack, weight)| Self::from_stack(stack, weight)),
+                .map(|(stack, weight)| Self::from_stack_with_end(stack, weight, &end)),
         )
     }
 

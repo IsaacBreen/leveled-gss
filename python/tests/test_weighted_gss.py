@@ -235,6 +235,23 @@ class WeightedGSSTest(unittest.TestCase):
         self.assertIn(("UKind", "Segment"), variants)
         self.assertTrue(dump["weights"])
 
+        terminal_nodes = [
+            node
+            for node in dump["nodes"]
+            if node["enum"] == "UKind"
+            and node["variant"] == "Branch"
+            and node.get("empty") is True
+        ]
+        self.assertEqual(len(terminal_nodes), 1)
+        terminal_id = terminal_nodes[0]["id"]
+        self.assertEqual(
+            sum(
+                edge["kind"] == "segment_next" and edge["to"] == terminal_id
+                for edge in dump["edges"]
+            ),
+            3,
+        )
+
         encoded = json.loads(gss._dump_json())
         self.assertEqual(encoded["schema"], dump["schema"])
         self.assertEqual(encoded["root"], dump["root"])
