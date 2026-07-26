@@ -3,10 +3,7 @@ use crate::segment::Segment;
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 use std::hash::Hash;
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
+use std::sync::Arc;
 
 pub(crate) type URef<S> = Arc<UNode<S>>;
 pub(crate) type WRef<S, W> = Arc<WNode<S, W>>;
@@ -28,7 +25,6 @@ pub(crate) struct WNode<S, W> {
     pub(crate) kind: WKind<S, W>,
     pub(crate) paths: usize,
     pub(crate) max_depth: usize,
-    representation_id: AtomicUsize,
 }
 
 pub(crate) enum WKind<S, W> {
@@ -50,30 +46,6 @@ pub(crate) fn u_id<S>(node: &URef<S>) -> usize {
 #[inline]
 pub(crate) fn w_id<S, W>(node: &WRef<S, W>) -> usize {
     Arc::as_ptr(node) as usize
-}
-
-static NEXT_REPRESENTATION_ID: AtomicUsize = AtomicUsize::new(1);
-
-pub(crate) fn w_representation_id<S, W>(node: &WRef<S, W>) -> usize {
-    let existing = node.representation_id.load(Ordering::Relaxed);
-    if existing != 0 {
-        return existing;
-    }
-
-    let candidate = NEXT_REPRESENTATION_ID
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
-            next.checked_add(1)
-        })
-        .expect("weighted GSS representation ID space exhausted");
-    match node.representation_id.compare_exchange(
-        0,
-        candidate,
-        Ordering::Relaxed,
-        Ordering::Relaxed,
-    ) {
-        Ok(_) => candidate,
-        Err(winner) => winner,
-    }
 }
 
 pub(crate) fn u_empty<S>() -> URef<S> {
@@ -188,7 +160,7 @@ where
                 u_after_prefix(next, count - values.len())
             }
         }
-        UKind::Branch { .. } => u_pop_n(node, count),
+        UKind::Branch { .. } => u_popn(node, count),
     }
 }
 
@@ -302,7 +274,7 @@ where
     }
 }
 
-pub(crate) fn u_pop_n<S>(node: &URef<S>, count: usize) -> URef<S>
+pub(crate) fn u_popn<S>(node: &URef<S>, count: usize) -> URef<S>
 where
     S: Clone + Eq + Hash,
 {
@@ -317,14 +289,14 @@ where
                     next.clone(),
                 )
             } else {
-                u_pop_n(next, count - values.len())
+                u_popn(next, count - values.len())
             }
         }
         UKind::Branch { children, .. } => u_merge_all(
             children
                 .values()
                 .flatten()
-                .map(|child| u_pop_n(child, count - 1))
+                .map(|child| u_popn(child, count - 1))
                 .collect::<Vec<_>>(),
         ),
     }
@@ -403,7 +375,7 @@ pub(crate) fn u_retain_empty<S>(node: &URef<S>) -> URef<S> {
     }
 }
 
-pub(crate) fn u_retain_at_depth<S, F>(node: &URef<S>, depth: usize, keep: &mut F) -> URef<S>
+pub(crate) fn u_retain_where_at_depth<S, F>(node: &URef<S>, depth: usize, keep: &mut F) -> URef<S>
 where
     S: Clone + Eq + Hash,
     F: FnMut(&S) -> bool,
@@ -419,7 +391,7 @@ where
             } else {
                 u_segment(
                     values.clone(),
-                    u_retain_at_depth(next, depth - values.len(), keep),
+                    u_retain_where_at_depth(next, depth - values.len(), keep),
                 )
             }
         }
@@ -434,7 +406,7 @@ where
             } else {
                 for (top, values) in children {
                     for child in values {
-                        let filtered = u_retain_at_depth(child, depth - 1, keep);
+                        let filtered = u_retain_where_at_depth(child, depth - 1, keep);
                         if !u_is_empty(&filtered) {
                             kept.entry(top.clone()).or_default().push(filtered);
                         }
@@ -454,7 +426,6 @@ pub(crate) fn w_empty<S, W>() -> WRef<S, W> {
         },
         paths: 0,
         max_depth: 0,
-        representation_id: AtomicUsize::new(0),
     })
 }
 
@@ -470,7 +441,6 @@ pub(crate) fn w_shared<S, W>(weight: Arc<W>, stacks: URef<S>) -> WRef<S, W> {
         paths: stacks.paths,
         max_depth: stacks.max_depth,
         kind: WKind::Shared { weight, stacks },
-        representation_id: AtomicUsize::new(0),
     })
 }
 
@@ -505,7 +475,6 @@ where
         kind: WKind::Branch { empty, children },
         paths,
         max_depth,
-        representation_id: AtomicUsize::new(0),
     })
 }
 
@@ -597,7 +566,7 @@ where
         },
     ) = (&left.kind, &right.kind)
     {
-        if Arc::ptr_eq(left_weight, right_weight) || left_weight.equivalent(right_weight.as_ref()) {
+        if Arc::ptr_eq(left_weight, right_weight) {
             let result = w_shared(left_weight.clone(), u_merge(left_stacks, right_stacks));
             memo.insert(key, result.clone());
             return result;
@@ -667,7 +636,7 @@ where
     };
     let mut result = first.clone();
     for weight in weights {
-        if Arc::ptr_eq(&result, weight) || result.equivalent(weight.as_ref()) {
+        if Arc::ptr_eq(&result, weight) {
             continue;
         }
         result = Arc::new(result.join(weight.as_ref()));
@@ -728,7 +697,7 @@ where
     }
 }
 
-pub(crate) fn w_pop_n<S, W>(node: &WRef<S, W>, count: usize) -> WRef<S, W>
+pub(crate) fn w_popn<S, W>(node: &WRef<S, W>, count: usize) -> WRef<S, W>
 where
     S: Clone + Eq + Hash,
     W: Weight,
@@ -737,12 +706,12 @@ where
         return node.clone();
     }
     match &node.kind {
-        WKind::Shared { weight, stacks } => w_shared(weight.clone(), u_pop_n(stacks, count)),
+        WKind::Shared { weight, stacks } => w_shared(weight.clone(), u_popn(stacks, count)),
         WKind::Branch { children, .. } => w_merge_all(
             children
                 .values()
                 .flatten()
-                .map(|child| w_pop_n(child, count - 1))
+                .map(|child| w_popn(child, count - 1))
                 .collect::<Vec<_>>(),
         ),
     }
@@ -819,7 +788,7 @@ where
     }
 }
 
-pub(crate) fn w_retain_at_depth<S, W, F>(
+pub(crate) fn w_retain_where_at_depth<S, W, F>(
     node: &WRef<S, W>,
     depth: usize,
     keep: &mut F,
@@ -830,7 +799,7 @@ where
 {
     match &node.kind {
         WKind::Shared { weight, stacks } => {
-            w_shared(weight.clone(), u_retain_at_depth(stacks, depth, keep))
+            w_shared(weight.clone(), u_retain_where_at_depth(stacks, depth, keep))
         }
         WKind::Branch { children, .. } => {
             let mut kept = WChildren::default();
@@ -843,7 +812,7 @@ where
             } else {
                 for (top, values) in children {
                     for child in values {
-                        let filtered = w_retain_at_depth(child, depth - 1, keep);
+                        let filtered = w_retain_where_at_depth(child, depth - 1, keep);
                         if !w_is_empty(&filtered) {
                             kept.entry(top.clone()).or_default().push(filtered);
                         }

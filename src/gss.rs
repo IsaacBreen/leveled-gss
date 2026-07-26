@@ -1,9 +1,8 @@
 use crate::Weight;
-use crate::diagnostics::{RepresentationId, StructuralStats};
-use crate::effects::StackEffect;
 use crate::nodes::*;
 use crate::paths::{Paths, collect_raw_paths};
 use crate::segment::Segment;
+use crate::stack_op::StackOp;
 use crate::virtual_stack::VirtualStack;
 use rustc_hash::FxHashMap;
 use std::fmt;
@@ -53,18 +52,6 @@ impl<S, W> WeightedGss<S, W> {
     #[must_use]
     pub fn max_depth(&self) -> usize {
         self.root.max_depth
-    }
-
-    /// Return an opaque process-local representation identity.
-    #[must_use]
-    pub fn representation_id(&self) -> RepresentationId {
-        RepresentationId(w_representation_id(&self.root))
-    }
-
-    /// Return representation-level statistics.
-    #[must_use]
-    pub fn structural_stats(&self) -> StructuralStats {
-        crate::paths::structural_stats(&self.root)
     }
 
     /// Access explicitly path-local operations.
@@ -170,9 +157,9 @@ where
 
     /// Pop `count` values from every stack, discarding underflowing alternatives.
     #[must_use]
-    pub fn pop_n(&self, count: usize) -> Self {
+    pub fn popn(&self, count: usize) -> Self {
         Self {
-            root: w_pop_n(&self.root, count),
+            root: w_popn(&self.root, count),
         }
     }
 
@@ -240,51 +227,51 @@ where
     /// Depth zero is the top. Alternatives too short to contain that position
     /// are discarded. Retained stacks are otherwise unchanged.
     #[must_use]
-    pub fn retain_at_depth<F>(&self, depth_from_top: usize, mut keep: F) -> Self
+    pub fn retain_where_at_depth<F>(&self, depth_from_top: usize, mut keep: F) -> Self
     where
         F: FnMut(&S) -> bool,
     {
         Self {
-            root: w_retain_at_depth(&self.root, depth_from_top, &mut keep),
+            root: w_retain_where_at_depth(&self.root, depth_from_top, &mut keep),
         }
     }
 
-    /// Apply one pop-then-push effect to every represented alternative.
+    /// Apply one pop-then-push operation to every represented alternative.
     #[must_use]
-    pub fn apply_effect<P>(&self, effect: StackEffect<P>) -> Self
+    pub fn apply_op<P>(&self, effect: StackOp<P>) -> Self
     where
         P: AsRef<[S]>,
     {
-        let mut result = self.pop_n(effect.pop_count());
+        let mut result = self.popn(effect.pop_count());
         for value in effect.pushed().as_ref() {
             result = result.push(value.clone());
         }
         result
     }
 
-    /// Nondeterministically apply every effect to every represented alternative.
+    /// Nondeterministically apply every operation to every represented alternative.
     #[must_use]
-    pub fn apply_effects<I, P>(&self, effects: I) -> Self
+    pub fn apply_ops<I, P>(&self, effects: I) -> Self
     where
-        I: IntoIterator<Item = StackEffect<P>>,
+        I: IntoIterator<Item = StackOp<P>>,
         P: AsRef<[S]>,
     {
-        Self::merge_all(effects.into_iter().map(|effect| self.apply_effect(effect)))
+        Self::merge_all(effects.into_iter().map(|op| self.apply_op(op)))
     }
 
-    /// Apply effects only to alternatives with matching current top values.
+    /// Apply operations only to alternatives with matching current top values.
     ///
     /// Multiple entries for the same top value represent nondeterministic choices.
     #[must_use]
-    pub fn apply_top_effects<I, P>(&self, effects: I) -> Self
+    pub fn apply_top_ops<I, P>(&self, effects: I) -> Self
     where
-        I: IntoIterator<Item = (S, StackEffect<P>)>,
+        I: IntoIterator<Item = (S, StackOp<P>)>,
         P: AsRef<[S]>,
     {
         Self::merge_all(
             effects
                 .into_iter()
-                .map(|(top, effect)| self.retain_top(&top).apply_effect(effect)),
+                .map(|(top, op)| self.retain_top(&top).apply_op(op)),
         )
     }
 
@@ -339,7 +326,6 @@ impl<S, W> fmt::Debug for WeightedGss<S, W> {
             .debug_struct("WeightedGss")
             .field("paths", &self.root.paths)
             .field("max_depth", &self.root.max_depth)
-            .field("representation", &self.representation_id())
             .finish()
     }
 }

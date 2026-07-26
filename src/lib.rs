@@ -8,23 +8,21 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
-mod diagnostics;
-mod effects;
 mod gss;
 mod language;
 mod nodes;
 mod paths;
 mod segment;
+mod stack_op;
 mod virtual_stack;
 mod weight;
 
 #[cfg(feature = "python")]
 mod python;
 
-pub use diagnostics::{RepresentationId, StructuralStats};
-pub use effects::StackEffect;
 pub use gss::{Gss, PathLimitExceeded, TopBranch, TopBranches, Tops, WeightedGss};
 pub use language::{StackLanguageId, StackLanguageInterner};
 pub use paths::Paths;
+pub use stack_op::StackOp;
 pub use virtual_stack::VirtualStack;
 pub use weight::Weight;

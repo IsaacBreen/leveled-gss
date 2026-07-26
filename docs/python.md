@@ -37,7 +37,7 @@ All operations are persistent: the original value remains usable.
 
 - `push(value)` pushes onto every represented stack.
 - `pop()` removes one value and discards empty alternatives.
-- `pop_n(count)` removes `count` values and discards underflowing alternatives.
+- `popn(count)` removes `count` values and discards underflowing alternatives.
 - `merge(other)` and `merge_all(values)` combine alternatives.
 
 ## Top frontier

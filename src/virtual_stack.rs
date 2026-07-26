@@ -1,8 +1,10 @@
 use crate::Weight;
-use crate::effects::StackEffect;
 use crate::gss::WeightedGss;
-use crate::nodes::{UKind, URef, WKind, u_has_empty, u_segment, w_shared};
+use crate::nodes::{
+    UKind, URef, WKind, WRef, u_has_empty, u_segment, w_has_empty, w_merge_all, w_push, w_shared,
+};
 use crate::segment::Segment;
+use crate::stack_op::StackOp;
 use smallvec::SmallVec;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -15,9 +17,14 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct VirtualStack<S, W> {
     values: Option<Segment<S>>,
-    next: URef<S>,
-    weight: Arc<W>,
+    floor: VirtualFloor<S, W>,
     pending: SmallVec<[S; 2]>,
+}
+
+#[derive(Clone)]
+enum VirtualFloor<S, W> {
+    Homogeneous { weight: Arc<W>, stacks: URef<S> },
+    Weighted(WRef<S, W>),
 }
 
 impl<S, W> VirtualStack<S, W>
@@ -26,18 +33,32 @@ where
     W: Weight,
 {
     pub(crate) fn from_gss(gss: &WeightedGss<S, W>) -> Option<Self> {
-        let WKind::Shared { weight, stacks } = &gss.root.kind else {
-            return None;
-        };
-        let UKind::Segment { values, next } = &stacks.kind else {
-            return None;
-        };
-        Some(Self {
-            values: Some(values.clone()),
-            next: next.clone(),
-            weight: weight.clone(),
-            pending: SmallVec::new(),
-        })
+        match &gss.root.kind {
+            WKind::Shared { weight, stacks } => {
+                let UKind::Segment { values, next } = &stacks.kind else {
+                    return None;
+                };
+                Some(Self {
+                    values: Some(values.clone()),
+                    floor: VirtualFloor::Homogeneous {
+                        weight: weight.clone(),
+                        stacks: next.clone(),
+                    },
+                    pending: SmallVec::new(),
+                })
+            }
+            WKind::Branch { empty, children } => {
+                if !empty.is_empty() || children.len() != 1 {
+                    return None;
+                }
+                let (top, remainders) = children.iter().next()?;
+                Some(Self {
+                    values: Some(Segment::one(top.clone())),
+                    floor: VirtualFloor::Weighted(w_merge_all(remainders.iter().cloned())),
+                    pending: SmallVec::new(),
+                })
+            }
+        }
     }
 
     /// Return the visible top value.
@@ -61,7 +82,10 @@ where
             depth -= values.len();
         }
 
-        let mut next = &self.next;
+        let VirtualFloor::Homogeneous { stacks, .. } = &self.floor else {
+            return None;
+        };
+        let mut next = stacks;
         loop {
             match &next.kind {
                 UKind::Segment {
@@ -83,23 +107,26 @@ where
     #[must_use]
     pub fn prefix_len(&self) -> usize {
         let current = self.values.as_ref().map_or(0, Segment::len);
+        let floor = match &self.floor {
+            VirtualFloor::Homogeneous { stacks, .. } => segment_chain_len(stacks),
+            VirtualFloor::Weighted(_) => 0,
+        };
         self.pending
             .len()
             .saturating_add(current)
-            .saturating_add(segment_chain_len(&self.next))
+            .saturating_add(floor)
     }
 
     /// Return whether the hidden floor is exactly the empty stack.
     #[must_use]
     pub fn is_complete(&self) -> bool {
-        let floor = segment_chain_floor(&self.next);
-        floor.paths == 1 && u_has_empty(floor)
-    }
-
-    /// Return the shared weight of all alternatives under this prefix.
-    #[must_use]
-    pub fn weight(&self) -> &W {
-        self.weight.as_ref()
+        match &self.floor {
+            VirtualFloor::Homogeneous { stacks, .. } => {
+                let floor = segment_chain_floor(stacks);
+                floor.paths == 1 && u_has_empty(floor)
+            }
+            VirtualFloor::Weighted(floor) => floor.max_depth == 0 && w_has_empty(floor),
+        }
     }
 
     /// Push one value onto the visible prefix.
@@ -141,15 +168,18 @@ where
                 break;
             }
             count -= values.len();
-            match &self.next.kind {
-                UKind::Segment { values, next } => {
-                    self.values = Some(values.clone());
-                    self.next = next.clone();
-                }
-                UKind::Branch { .. } => {
-                    self.values = None;
-                    break;
-                }
+            match &self.floor {
+                VirtualFloor::Homogeneous { weight, stacks } => match &stacks.kind {
+                    UKind::Segment { values, next } => {
+                        self.values = Some(values.clone());
+                        self.floor = VirtualFloor::Homogeneous {
+                            weight: weight.clone(),
+                            stacks: next.clone(),
+                        };
+                    }
+                    UKind::Branch { .. } => break,
+                },
+                VirtualFloor::Weighted(_) => break,
             }
         }
         count
@@ -158,40 +188,52 @@ where
     /// Convert the fast-path view back into a general weighted GSS.
     #[must_use]
     pub fn into_gss(self) -> WeightedGss<S, W> {
-        let mut stacks = match self.values {
-            Some(values) => u_segment(values, self.next),
-            None => self.next,
-        };
-        if !self.pending.is_empty() {
-            stacks = u_segment(
-                Segment::from_top_first(self.pending.into_iter().rev().collect()),
-                stacks,
-            );
-        }
-        WeightedGss {
-            root: w_shared(self.weight, stacks),
+        match self.floor {
+            VirtualFloor::Homogeneous { weight, stacks } => {
+                let mut stacks = match self.values {
+                    Some(values) => u_segment(values, stacks),
+                    None => stacks,
+                };
+                if !self.pending.is_empty() {
+                    stacks = u_segment(
+                        Segment::from_top_first(self.pending.into_iter().rev().collect()),
+                        stacks,
+                    );
+                }
+                WeightedGss {
+                    root: w_shared(weight, stacks),
+                }
+            }
+            VirtualFloor::Weighted(mut floor) => {
+                if let Some(values) = self.values {
+                    for value in values.iter().rev() {
+                        floor = w_push(&floor, value.clone());
+                    }
+                }
+                for value in self.pending {
+                    floor = w_push(&floor, value);
+                }
+                WeightedGss { root: floor }
+            }
         }
     }
 
-    /// Apply nondeterministic effects while sharing the unchanged hidden floor.
+    /// Apply nondeterministic operations while sharing the unchanged hidden floor.
     #[must_use]
-    pub fn apply_effects<I, P>(self, effects: I) -> WeightedGss<S, W>
+    pub fn apply_ops<I, P>(self, ops: I) -> WeightedGss<S, W>
     where
-        I: IntoIterator<Item = StackEffect<P>>,
+        I: IntoIterator<Item = StackOp<P>>,
         P: AsRef<[S]>,
     {
-        let effects: Vec<_> = effects.into_iter().collect();
-        if effects
-            .iter()
-            .any(|effect| effect.pop_count() > self.prefix_len())
-        {
-            return self.into_gss().apply_effects(effects);
+        let ops: Vec<_> = ops.into_iter().collect();
+        if ops.iter().any(|op| op.pop_count() > self.prefix_len()) {
+            return self.into_gss().apply_ops(ops);
         }
-        WeightedGss::merge_all(effects.into_iter().map(|effect| {
+        WeightedGss::merge_all(ops.into_iter().map(|op| {
             let mut branch = self.clone();
-            let remaining = branch.pop_prefix(effect.pop_count());
+            let remaining = branch.pop_prefix(op.pop_count());
             debug_assert_eq!(remaining, 0);
-            for value in effect.pushed().as_ref() {
+            for value in op.pushed().as_ref() {
                 branch.push(value.clone());
             }
             branch.into_gss()

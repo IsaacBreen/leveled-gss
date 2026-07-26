@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use weighted_gss::{Gss, StackEffect, Weight, WeightedGss};
+use weighted_gss::{Gss, StackOp, Weight, WeightedGss};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Bits(u32);
@@ -26,8 +26,7 @@ fn public_api_reads_like_stack_operations() {
     assert_eq!(branch.top(), Some(1));
     assert_eq!(branch.to_stacks(8).unwrap(), vec![(vec![0, 1], Bits(1))]);
 
-    let shifted =
-        stacks.apply_top_effects([(2, StackEffect::new(1, [8])), (3, StackEffect::new(0, [9]))]);
+    let shifted = stacks.apply_top_ops([(2, StackOp::new(1, [8])), (3, StackOp::new(0, [9]))]);
     let mut materialized = shifted.to_stacks(8).unwrap();
     materialized.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(

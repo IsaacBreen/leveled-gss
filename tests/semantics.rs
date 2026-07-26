@@ -1,6 +1,6 @@
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::collections::{BTreeMap, BTreeSet};
-use weighted_gss::{StackEffect, Weight, WeightedGss};
+use weighted_gss::{StackOp, Weight, WeightedGss};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Bits(u64);
@@ -123,8 +123,8 @@ fn assert_matches(gss: &WeightedGss<u8, Bits>, model: &Model, context: &str) {
 fn merge_joins_weights_when_stack_keys_coincide() {
     let gss = WeightedGss::from_stacks([([1_u8, 2], Bits(1)), ([1_u8, 2], Bits(4))]);
 
-    assert_eq!(gss.paths().to_vec(4).unwrap(), vec![(vec![1, 2], Bits(5))]);
-    assert_eq!(gss.paths().count_at_most(10), 1);
+    assert_eq!(gss.to_stacks(4).unwrap(), vec![(vec![1, 2], Bits(5))]);
+    assert_eq!(gss.paths().path_count_at_most(10), 1);
     assert_eq!(gss.to_stacks(4).unwrap(), vec![(vec![1, 2], Bits(5))]);
 }
 
@@ -138,16 +138,16 @@ fn path_local_weight_transforms_preserve_stack_correlation() {
     let mapped = gss
         .paths()
         .filter_map_weights(|weight| (weight.0 != 4).then_some(Bits(weight.0 << 1)));
-    let mut raw = mapped.paths().to_vec(8).unwrap();
+    let mut raw = mapped.to_stacks(8).unwrap();
     raw.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(raw, vec![(vec![1, 2], Bits(2)), (vec![9], Bits(16))]);
 }
 
 #[test]
 fn virtual_stack_exposes_linear_prefix_over_hidden_floor() {
-    let base = WeightedGss::from_stack(Vec::<u8>::new(), Bits(1)).apply_effects([
-        StackEffect::new(0, vec![0_u8, 1]),
-        StackEffect::new(0, vec![9_u8, 1]),
+    let base = WeightedGss::from_stack(Vec::<u8>::new(), Bits(1)).apply_ops([
+        StackOp::new(0, vec![0_u8, 1]),
+        StackOp::new(0, vec![9_u8, 1]),
     ]);
     let pushed = base.push(7).push(8);
     let mut virtual_stack = pushed.try_virtual_stack().expect("linear prefix");
@@ -166,6 +166,29 @@ fn virtual_stack_exposes_linear_prefix_over_hidden_floor() {
 }
 
 #[test]
+fn virtual_stack_exposes_common_top_over_weighted_floor() {
+    let left = WeightedGss::from_stack([0_u8, 1, 10], Bits(1));
+    let right = WeightedGss::from_stack([0_u8, 2, 10], Bits(2));
+    let merged = left.merge(&right);
+
+    let mut stack = merged
+        .try_virtual_stack()
+        .expect("common top should be visible above weighted floor");
+    assert_eq!(stack.top(), Some(&10));
+    assert_eq!(stack.prefix_len(), 1);
+    assert!(!stack.is_complete());
+    assert_eq!(stack.pop_prefix(1), 0);
+    stack.push(40);
+
+    let mut materialized = stack.into_gss().to_stacks(8).unwrap();
+    materialized.sort_by(|left, right| left.0.cmp(&right.0));
+    assert_eq!(
+        materialized,
+        vec![(vec![0, 1, 40], Bits(1)), (vec![0, 2, 40], Bits(2))],
+    );
+}
+
+#[test]
 fn top_branching_and_depth_filters_are_extensional() {
     let gss = WeightedGss::from_stacks([
         (vec![0_u8, 1, 2], Bits(1)),
@@ -180,7 +203,7 @@ fn top_branching_and_depth_filters_are_extensional() {
         canonical([(vec![0, 1], Bits(1)), (vec![0, 3], Bits(2))])
     );
     assert_eq!(
-        materialize(&gss.retain_at_depth(1, |value| *value % 2 == 1)),
+        materialize(&gss.retain_where_at_depth(1, |value| *value % 2 == 1)),
         canonical([
             (vec![0, 1, 2], Bits(1)),
             (vec![0, 3, 2], Bits(2)),
@@ -214,7 +237,7 @@ fn randomized_core_operations_match_extensional_model() {
                 2 => {
                     let count = rng.gen_range(0..=5);
                     model = pop_model(&model, count);
-                    gss = gss.pop_n(count);
+                    gss = gss.popn(count);
                 }
                 3 => {
                     let top = rng.gen_range(0..=5);
@@ -229,14 +252,14 @@ fn randomized_core_operations_match_extensional_model() {
                     let depth = rng.gen_range(0..=4);
                     let parity = rng.gen_range(0..=1);
                     model = retain_depth_model(&model, depth, parity);
-                    gss = gss.retain_at_depth(depth, |value| *value % 2 == parity);
+                    gss = gss.retain_where_at_depth(depth, |value| *value % 2 == parity);
                 }
                 6 => {
                     let count = rng.gen_range(0..=5);
                     let push_len = rng.gen_range(0..=3);
                     let push: Vec<u8> = (0..push_len).map(|_| rng.gen_range(0..=5)).collect();
                     model = effect_model(&model, count, &push);
-                    gss = gss.apply_effect(StackEffect::new(count, push));
+                    gss = gss.apply_op(StackOp::new(count, push));
                 }
                 7 => {
                     let other_count = rng.gen_range(0..=8);
@@ -287,7 +310,7 @@ fn stack_language_interner_stays_compact_for_shared_binary_dag() {
     for level in 0..18_u8 {
         gss = WeightedGss::merge_all([gss.push(level * 2), gss.push(level * 2 + 1)]);
     }
-    assert_eq!(gss.paths().count_at_most(1 << 19), 1 << 18);
+    assert_eq!(gss.paths().path_count_at_most(1 << 19), 1 << 18);
     let mut interner = StackLanguageInterner::new();
     assert_ne!(interner.key(&gss).as_u32(), 0);
     assert!(interner.node_count() < 100);
@@ -309,7 +332,7 @@ fn bounded_path_visit_emits_limit_then_reports_overflow() {
     let mut visited = Vec::new();
     let result = gss
         .paths()
-        .for_each_top_first(2, |stack, _| visited.push(stack.to_vec()));
+        .for_each_path_top_first(2, |stack, _| visited.push(stack.to_vec()));
     assert_eq!(visited.len(), 2);
     assert_eq!(result.unwrap_err().limit, 2);
 }
@@ -342,26 +365,5 @@ fn merge_memo_does_not_alias_dropped_intermediate_nodes() {
     for _ in 0..1_000 {
         let gss = WeightedGss::from_stacks(entries.clone());
         assert_eq!(materialize(&gss), expected);
-    }
-}
-
-#[test]
-fn representation_ids_are_stable_and_never_reused() {
-    use std::collections::HashSet;
-
-    let original = WeightedGss::from_stack([1_u8, 2], Bits(1));
-    let cloned = original.clone();
-    assert_eq!(original.representation_id(), cloned.representation_id());
-
-    let independently_built = WeightedGss::from_stack([1_u8, 2], Bits(1));
-    assert_ne!(
-        original.representation_id(),
-        independently_built.representation_id()
-    );
-
-    let mut seen = HashSet::new();
-    for value in 0_u32..10_000 {
-        let gss = WeightedGss::from_stack(value.to_le_bytes(), Bits(1));
-        assert!(seen.insert(gss.representation_id()));
     }
 }

@@ -6,7 +6,7 @@ A persistent weighted graph-structured stack for nondeterministic stack machines
 
 A `WeightedGss<S, W>` stores a collection of stack alternatives. Every stack has a weight, and when operations make alternatives denote the same concrete stack, their weights are joined. Common stack tails are shared, while linear regions use compact segments and can be exposed through a mutable fast-path view.
 
-The public API is expressed entirely in terms of stacks, alternatives, weights, and stack effects. The graph representation is private.
+The public API is expressed entirely in terms of stacks, alternatives, weights, and stack operations. The graph representation is private.
 
 ## Installation
 
@@ -38,7 +38,7 @@ python -m pip install "git+https://github.com/IsaacBreen/weighted-gss@rewrite/fr
 Stacks are supplied and returned bottom-to-top.
 
 ```rust
-use weighted_gss::{StackEffect, Weight, WeightedGss};
+use weighted_gss::{StackOp, Weight, WeightedGss};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Possibilities(u32);
@@ -48,9 +48,6 @@ impl Weight for Possibilities {
         Self(self.0 | other.0)
     }
 
-    fn equivalent(&self, other: &Self) -> bool {
-        self == other
-    }
 }
 
 let left = WeightedGss::from_stack([0_u32, 1, 2], Possibilities(0b001));
@@ -66,14 +63,14 @@ assert_eq!(
     vec![(vec![0, 1, 9], Possibilities(0b001))],
 );
 
-let shifted = stacks.apply_top_effects([
-    (2, StackEffect::new(1, [8])),
-    (3, StackEffect::new(0, [9])),
+let shifted = stacks.apply_top_ops([
+    (2, StackOp::new(1, [8])),
+    (3, StackOp::new(0, [9])),
 ]);
 assert_eq!(shifted.max_depth(), 4);
 ```
 
-`Weight::join` must be associative, commutative, and idempotent. `Weight::equivalent` is an optional optimisation hint; its conservative default is always correct.
+`Weight::join` must be associative, commutative, and idempotent.
 
 ## Python use
 
@@ -112,10 +109,10 @@ Construction and alternatives:
 
 Stack operations:
 
-- `push`, `pop`, `pop_n`
+- `push`, `pop`, `popn`
 - `top`, `tops`, `retain_top`, `retain_empty`, `pop_top`, `pop_branches`
-- `retain_at_depth`
-- `apply_effect`, `apply_effects`, `apply_top_effects`
+- `retain_where_at_depth`
+- `apply_op`, `apply_ops`, `apply_top_ops`
 
 Observations:
 
@@ -133,7 +130,7 @@ let pruned = stacks.paths().filter_map_weights(|weight| {
 });
 ```
 
-`paths()` also provides bounded raw traversal, path counts, weight partitioning, and a caller-buffer single-path view. See [Semantics](docs/semantics.md).
+`paths()` also provides bounded structural traversal, path counts, immutable weight iteration, weight partitioning, and a caller-buffer single-path view. Structural layout is not part of the API contract. See [Semantics](docs/semantics.md).
 
 ## Linear fast path
 

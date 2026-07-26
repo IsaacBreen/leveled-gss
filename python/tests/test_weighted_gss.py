@@ -76,7 +76,7 @@ class WeightedGSSTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             WeightedGSS().joined_weight()
         self.assertEqual(original.tops(), {2, 3})
-        self.assertEqual(original.pop_n(1).tops(), {1})
+        self.assertEqual(original.popn(1).tops(), {1})
         with self.assertRaises(ValueError):
             original.top()
         with self.assertRaises(ValueError):
@@ -164,7 +164,7 @@ class WeightedGSSTest(unittest.TestCase):
                         for stack, weight in model.items()
                         if len(stack) >= count
                     )
-                    gss = gss.pop_n(count)
+                    gss = gss.popn(count)
                 elif operation == 2:
                     value = rng.randrange(6)
                     model = {
@@ -210,7 +210,7 @@ class WeightedGSSTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             WeightedGSS.from_unweighted([[[1, 2]]])
         with self.assertRaises(ValueError):
-            WeightedGSS.from_unweighted([[1]]).pop_n(-1)
+            WeightedGSS.from_unweighted([[1]]).popn(-1)
 
 
 if __name__ == "__main__":

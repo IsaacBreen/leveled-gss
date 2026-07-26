@@ -125,10 +125,6 @@ impl Weight for PyWeight {
             }
         })
     }
-
-    fn equivalent(&self, other: &Self) -> bool {
-        Python::attach(|py| self.0.bind(py).is(other.0.bind(py)))
-    }
 }
 
 /// A persistent collection of weighted stack alternatives.
@@ -290,11 +286,11 @@ impl PyWeightedGss {
     }
 
     /// Pop ``count`` values, discarding alternatives that underflow.
-    fn pop_n(&self, count: isize) -> PyResult<Self> {
+    fn popn(&self, count: isize) -> PyResult<Self> {
         let count = usize::try_from(count)
             .map_err(|_| PyValueError::new_err("count must be non-negative"))?;
         Ok(Self {
-            inner: run_callbacks(|| self.inner.pop_n(count))?,
+            inner: run_callbacks(|| self.inner.popn(count))?,
         })
     }
 
@@ -407,7 +403,7 @@ impl PyWeightedGss {
     }
 
     fn __repr__(&self) -> String {
-        let paths = self.inner.paths().count_at_most(17);
+        let paths = self.inner.paths().path_count_at_most(17);
         if paths <= 16 {
             format!(
                 "WeightedGSS(paths={paths}, max_depth={})",

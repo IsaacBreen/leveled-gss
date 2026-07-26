@@ -1,5 +1,4 @@
 use crate::Weight;
-use crate::diagnostics::StructuralStats;
 use crate::gss::{Gss, PathLimitExceeded, WeightedGss};
 use crate::nodes::*;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -19,18 +18,16 @@ impl<'a, S, W> Paths<'a, S, W> {
 
     /// Count structural paths, capped at `limit`.
     #[must_use]
-    pub fn count_at_most(&self, limit: usize) -> usize {
+    pub fn path_count_at_most(&self, limit: usize) -> usize {
         self.gss.root.paths.min(limit)
     }
 
-    /// Visit each distinct stored path-weight node without expanding stack paths.
-    pub fn for_each_weight(&self, mut visit: impl FnMut(&W)) {
-        for_each_weight_node(&self.gss.root, &mut visit);
-    }
-
-    /// Return whether every distinct stored path-weight node satisfies `predicate`.
-    pub fn all_weights_satisfy(&self, mut predicate: impl FnMut(&W) -> bool) -> bool {
-        all_weight_nodes_satisfy(&self.gss.root, &mut predicate)
+    /// Iterate over distinct stored weight nodes without expanding stack paths.
+    ///
+    /// This is representation-local: neither order nor weight placement is a
+    /// semantic property of the weighted GSS.
+    pub fn weights(&self) -> impl Iterator<Item = &W> {
+        WeightIter::new(&self.gss.root)
     }
 }
 
@@ -39,19 +36,12 @@ where
     S: Clone + Eq + Hash,
     W: Weight,
 {
-    /// Materialize raw structural paths as bottom-to-top stacks.
-    ///
-    /// Duplicate concrete stacks may appear with separate weights.
-    pub fn to_vec(&self, max_paths: usize) -> Result<Vec<(Vec<S>, W)>, PathLimitExceeded> {
-        collect_raw_paths(&self.gss.root, max_paths)
-    }
-
-    /// Visit raw structural paths as top-first stack slices without materializing them.
+    /// Visit structural paths as top-first stack slices without materializing them.
     ///
     /// Duplicate concrete stacks may be visited more than once. At most
     /// `max_paths` callbacks are made; if more paths exist, the method then
     /// returns [`PathLimitExceeded`].
-    pub fn for_each_top_first(
+    pub fn for_each_path_top_first(
         &self,
         max_paths: usize,
         mut visit: impl FnMut(&[S], &W),
@@ -71,11 +61,11 @@ where
         }
     }
 
-    /// Fill `output` with the only structural path in top-first order.
+    /// Write the only structural path to `output` in top-first order.
     ///
     /// Returns its stored weight, or `None` unless exactly one structural path
     /// is represented. The output buffer is cleared before use.
-    pub fn single_top_first(&self, output: &mut Vec<S>) -> Option<&'gss W> {
+    pub fn write_single_path_top_first(&self, output: &mut Vec<S>) -> Option<&'gss W> {
         if self.gss.root.paths != 1 {
             return None;
         }
@@ -154,6 +144,51 @@ where
                 (weight, paths)
             })
             .collect()
+    }
+}
+
+struct WeightIter<'a, S, W> {
+    nodes: Vec<&'a WNode<S, W>>,
+    empty_weights: Option<std::slice::Iter<'a, Arc<W>>>,
+    seen: FxHashSet<usize>,
+}
+
+impl<'a, S, W> WeightIter<'a, S, W> {
+    fn new(root: &'a WRef<S, W>) -> Self {
+        Self {
+            nodes: vec![root.as_ref()],
+            empty_weights: None,
+            seen: FxHashSet::default(),
+        }
+    }
+}
+
+impl<'a, S, W> Iterator for WeightIter<'a, S, W> {
+    type Item = &'a W;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(weights) = self.empty_weights.as_mut() {
+                if let Some(weight) = weights.next() {
+                    return Some(weight.as_ref());
+                }
+                self.empty_weights = None;
+            }
+
+            let node = self.nodes.pop()?;
+            let id = node as *const WNode<S, W> as usize;
+            if !self.seen.insert(id) {
+                continue;
+            }
+            match &node.kind {
+                WKind::Shared { weight, .. } => return Some(weight.as_ref()),
+                WKind::Branch { empty, children } => {
+                    self.nodes
+                        .extend(children.values().flatten().map(AsRef::as_ref));
+                    self.empty_weights = Some(empty.iter());
+                }
+            }
+        }
     }
 }
 
@@ -335,42 +370,6 @@ where
     }
 }
 
-fn for_each_weight_node<S, W>(node: &WRef<S, W>, visit: &mut impl FnMut(&W)) {
-    fn walk<S, W>(node: &WRef<S, W>, seen: &mut FxHashSet<usize>, visit: &mut impl FnMut(&W)) {
-        if !seen.insert(w_id(node)) {
-            return;
-        }
-        match &node.kind {
-            WKind::Shared { weight, .. } => visit(weight.as_ref()),
-            WKind::Branch { empty, children } => {
-                for weight in empty {
-                    visit(weight.as_ref());
-                }
-                for child in children.values().flatten() {
-                    walk(child, seen, visit);
-                }
-            }
-        }
-    }
-    walk(node, &mut FxHashSet::default(), visit);
-}
-
-fn all_weight_nodes_satisfy<S, W>(
-    node: &WRef<S, W>,
-    predicate: &mut impl FnMut(&W) -> bool,
-) -> bool {
-    match &node.kind {
-        WKind::Shared { weight, .. } => predicate(weight.as_ref()),
-        WKind::Branch { empty, children } => {
-            empty.iter().all(|weight| predicate(weight.as_ref()))
-                && children
-                    .values()
-                    .flatten()
-                    .all(|child| all_weight_nodes_satisfy(child, predicate))
-        }
-    }
-}
-
 pub(crate) fn collect_raw_paths<S, W>(
     root: &WRef<S, W>,
     max_paths: usize,
@@ -515,60 +514,6 @@ where
             prefix.extend(values.iter().cloned());
             walk_u(next, prefix, emit);
             prefix.truncate(old_len);
-        }
-    }
-}
-
-pub(crate) fn structural_stats<S, W>(root: &WRef<S, W>) -> StructuralStats {
-    let mut seen_w = FxHashSet::default();
-    let mut seen_u = FxHashSet::default();
-    let mut edges = 0usize;
-    count_w(root, &mut seen_w, &mut seen_u, &mut edges);
-    StructuralStats {
-        nodes: seen_w.len().saturating_add(seen_u.len()),
-        edges,
-        paths: root.paths,
-        max_depth: root.max_depth,
-    }
-}
-
-fn count_w<S, W>(
-    node: &WRef<S, W>,
-    seen_w: &mut FxHashSet<usize>,
-    seen_u: &mut FxHashSet<usize>,
-    edges: &mut usize,
-) {
-    if !seen_w.insert(w_id(node)) {
-        return;
-    }
-    match &node.kind {
-        WKind::Shared { stacks, .. } => {
-            *edges = edges.saturating_add(1);
-            count_u(stacks, seen_u, edges);
-        }
-        WKind::Branch { children, .. } => {
-            *edges = edges.saturating_add(children.values().map(SmallVec::len).sum::<usize>());
-            for child in children.values().flatten() {
-                count_w(child, seen_w, seen_u, edges);
-            }
-        }
-    }
-}
-
-fn count_u<S>(node: &URef<S>, seen: &mut FxHashSet<usize>, edges: &mut usize) {
-    if !seen.insert(u_id(node)) {
-        return;
-    }
-    match &node.kind {
-        UKind::Branch { children, .. } => {
-            *edges = edges.saturating_add(children.values().map(SmallVec::len).sum::<usize>());
-            for child in children.values().flatten() {
-                count_u(child, seen, edges);
-            }
-        }
-        UKind::Segment { next, .. } => {
-            *edges = edges.saturating_add(1);
-            count_u(next, seen, edges);
         }
     }
 }
