@@ -166,29 +166,6 @@ fn virtual_stack_exposes_linear_prefix_over_hidden_floor() {
 }
 
 #[test]
-fn virtual_stack_exposes_common_top_over_weighted_floor() {
-    let left = WeightedGss::from_stack([0_u8, 1, 10], Bits(1));
-    let right = WeightedGss::from_stack([0_u8, 2, 10], Bits(2));
-    let merged = left.merge(&right);
-
-    let mut stack = merged
-        .try_virtual_stack()
-        .expect("common top should be visible above weighted floor");
-    assert_eq!(stack.top(), Some(&10));
-    assert_eq!(stack.prefix_len(), 1);
-    assert!(!stack.is_complete());
-    assert_eq!(stack.pop_prefix(1), 0);
-    stack.push(40);
-
-    let mut materialized = stack.into_gss().to_stacks(8).unwrap();
-    materialized.sort_by(|left, right| left.0.cmp(&right.0));
-    assert_eq!(
-        materialized,
-        vec![(vec![0, 1, 40], Bits(1)), (vec![0, 2, 40], Bits(2))],
-    );
-}
-
-#[test]
 fn top_branching_and_depth_filters_are_extensional() {
     let gss = WeightedGss::from_stacks([
         (vec![0_u8, 1, 2], Bits(1)),

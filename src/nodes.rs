@@ -566,7 +566,19 @@ where
         },
     ) = (&left.kind, &right.kind)
     {
-        if Arc::ptr_eq(left_weight, right_weight) {
+        if Arc::ptr_eq(left_stacks, right_stacks) {
+            let weight = if Arc::ptr_eq(left_weight, right_weight)
+                || left_weight.as_ref() == right_weight.as_ref()
+            {
+                left_weight.clone()
+            } else {
+                Arc::new(left_weight.join(right_weight.as_ref()))
+            };
+            let result = w_shared(weight, left_stacks.clone());
+            memo.insert(key, result.clone());
+            return result;
+        }
+        if Arc::ptr_eq(left_weight, right_weight) || left_weight.as_ref() == right_weight.as_ref() {
             let result = w_shared(left_weight.clone(), u_merge(left_stacks, right_stacks));
             memo.insert(key, result.clone());
             return result;
@@ -636,7 +648,7 @@ where
     };
     let mut result = first.clone();
     for weight in weights {
-        if Arc::ptr_eq(&result, weight) {
+        if Arc::ptr_eq(&result, weight) || result.as_ref() == weight.as_ref() {
             continue;
         }
         result = Arc::new(result.join(weight.as_ref()));

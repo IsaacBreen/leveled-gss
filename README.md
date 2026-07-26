@@ -70,7 +70,7 @@ let shifted = stacks.apply_top_ops([
 assert_eq!(shifted.max_depth(), 4);
 ```
 
-`Weight::join` must be associative, commutative, and idempotent.
+`Weight` must implement ordinary equality. `Weight::join` must be associative, commutative, and idempotent.
 
 ## Python use
 

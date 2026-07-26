@@ -6,12 +6,11 @@
 
 - bounded zero-copy callback traversal with `for_each_top_first`;
 - capped structural path counts with `path_count_at_most`;
-- caller-buffer extraction of the only structural path;
 - immutable iteration over stored weight nodes without expanding paths;
 - path-local map and filter-map operations, including fallible variants;
 - partitioning paths by equal stored weights.
 
-These operations are useful for dataflow annotations, parser exclusion state, diagnostics, and language bindings. They should not be confused with canonical iteration over distinct concrete stacks.
+Weight-only transformations preserve the immutable unweighted stack DAG rather than rebuilding it. These operations are useful for dataflow annotations, parser exclusion state, diagnostics, and language bindings. They should not be confused with canonical iteration over distinct concrete stacks.
 
 ## `VirtualStack`
 

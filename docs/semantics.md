@@ -14,6 +14,8 @@ Normal stack operations preserve this extensional meaning. The implementation ma
 
 ## Weight laws
 
+Weights implement ordinary equality. Equal weights may be factored over one shared stack language; equality must therefore imply that retaining either value is equivalent to joining them.
+
 `Weight::join` must be:
 
 - associative: `(a ⋁ b) ⋁ c = a ⋁ (b ⋁ c)`;

@@ -107,6 +107,12 @@ impl Clone for PyWeight {
     }
 }
 
+impl PartialEq for PyWeight {
+    fn eq(&self, other: &Self) -> bool {
+        Python::attach(|py| self.0.bind(py).is(other.0.bind(py)))
+    }
+}
+
 impl Weight for PyWeight {
     fn join(&self, other: &Self) -> Self {
         Python::attach(|py| {
