@@ -24,6 +24,35 @@ Weights implement ordinary equality. Equal weights may be factored over one shar
 
 Set union, bitwise OR, minimum, and maximum are typical joins. Integer addition is generally not valid because it is not idempotent.
 
+## Factored weight regions
+
+The representation may factor one weight over a shared language containing many
+stacks. Conversely, equal weight values may occur in several distinct stored
+regions. Therefore `weights()` does not yield one item per stack: its order and
+item count are unspecified and are not semantic properties.
+
+`map_weights(f)` and `filter_map_weights(f)` apply `f` once to each distinct
+reachable stored weight region while preserving graph sharing. They do not first
+materialise stacks or compute each stack's joined weight. `None` from
+`filter_map_weights` removes the complete stack sublanguage covered by that
+region.
+
+No additional algebraic law is required to use these operations. When the result
+must be independent of equivalent internal refactorings, however, the transform
+must preserve joins. For `map_weights`:
+
+```text
+f(a ⋁ b) = f(a) ⋁ f(b)
+```
+
+For `filter_map_weights`, treat `None` as no contribution and define the join of
+two `Some` values using `V::join`; the lifted transform must preserve joins under
+that operation. Callbacks that do not satisfy this condition intentionally observe
+the current weight factorisation.
+
+There is no mutable weight iterator. A `WeightedGss` is persistent, and one stored
+weight may be shared by many stacks and graph parents.
+
 ## Empty GSS and empty stack
 
 These are different:
@@ -67,4 +96,4 @@ Operations return new values and retain immutable sharing where possible. Existi
 
 The default API does not expose graph paths, representation IDs, structural profiling, parser stack effects, or canonical language machinery.
 
-With the `engine` feature enabled, a deliberately small module exposes representation-local path-weight operations, bounded semantic stack inspection, a linear-prefix view, and exact unweighted stack-language keys. These operations preserve sharing without making graph layout itself public. Their contracts are documented in [Engine API](engine.md).
+With the `engine` feature enabled, a deliberately small module exposes bounded semantic stack inspection, a linear-prefix view, and exact unweighted stack-language keys. These operations preserve sharing without making graph layout itself public. Their contracts are documented in [Engine API](engine.md).

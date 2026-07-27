@@ -73,9 +73,12 @@ The core methods are:
 - alternatives: `merge`;
 - stack operations: `push`, `pop`, `popn`;
 - top selection: `top`, `tops`, `has_empty_stack`, `retain_top`, `retain_empty`, `pop_top`;
-- observations: `is_empty`, `max_depth`, `joined_weight`, `to_stacks`.
+- weights: `weights`, `map_weights`, `filter_map_weights`, `joined_weight`;
+- observations: `is_empty`, `max_depth`, `to_stacks`.
 
 `to_stacks(max_paths)` returns canonical `(stack, weight)` pairs and fails rather than silently exceeding the requested structural traversal bound.
+
+`weights()` iterates stored factored weight regions, not concrete stacks. One weight may cover many stacks, equal weights may appear more than once, and count/order are unspecified. `map_weights` and `filter_map_weights` transform those regions without materialising stacks; see [Semantics and invariants](docs/semantics.md) for the representation-independence condition.
 
 ## Optional engine API
 
@@ -88,7 +91,6 @@ weighted-gss = { version = "0.2", features = ["engine"] }
 
 The opt-in `weighted_gss::engine` module contains only:
 
-- `path_weights` and `filter_map_path_weights` for explicitly representation-local weight work;
 - `for_each_stack_top_first` for bounded, allocation-light concrete-stack inspection;
 - `linear_prefix` and `LinearPrefix` for mutating a homogeneous linear top prefix while retaining its hidden floor;
 - `StackLanguageInterner` and `StackLanguageId` for exact fixpoint keys.

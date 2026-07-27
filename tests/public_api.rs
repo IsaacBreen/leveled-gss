@@ -22,6 +22,11 @@ fn public_api_reads_like_weighted_stack_operations() {
     );
     assert_eq!(stacks.top(), None);
     assert!(stacks.retain_empty().is_empty());
+    assert_eq!(stacks.weights().count(), 2);
+
+    let remapped = stacks.map_weights(|weight| Bits(weight.0 << 1));
+    let filtered = remapped.filter_map_weights(|weight| (weight.0 != 4).then_some(*weight));
+    assert_eq!(filtered.joined_weight(), Some(Bits(2)));
 
     let branch = stacks.pop_top(&2).push(8);
     assert_eq!(branch.top(), Some(8));

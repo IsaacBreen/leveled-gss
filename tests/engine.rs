@@ -1,10 +1,7 @@
 #![cfg(feature = "engine")]
 
 use std::collections::BTreeMap;
-use weighted_gss::engine::{
-    StackLanguageInterner, filter_map_path_weights, for_each_stack_top_first, linear_prefix,
-    path_weights,
-};
+use weighted_gss::engine::{StackLanguageInterner, for_each_stack_top_first, linear_prefix};
 use weighted_gss::{Weight, WeightedGss};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,23 +37,6 @@ fn bounded_visit_rejects_large_shared_language_without_expanding_it() {
 
     let error = for_each_stack_top_first(&gss, 32, |_, _| {}).unwrap_err();
     assert_eq!(error.limit, 32);
-}
-
-#[test]
-fn path_weight_operations_preserve_stack_correlation() {
-    let gss = WeightedGss::from_stacks([
-        (vec![0_u8, 1], Bits(1)),
-        (vec![0_u8, 2], Bits(2)),
-        (vec![9_u8], Bits(4)),
-    ]);
-    assert_eq!(path_weights(&gss).count(), 3);
-
-    let filtered = filter_map_path_weights(&gss, |weight| {
-        (weight.0 != 2).then_some(Bits(weight.0 << 1))
-    });
-    let actual: BTreeMap<_, _> = filtered.to_stacks(8).unwrap().into_iter().collect();
-    let expected = BTreeMap::from([(vec![0, 1], Bits(2)), (vec![9], Bits(8))]);
-    assert_eq!(actual, expected);
 }
 
 #[test]

@@ -15,6 +15,7 @@ mod nodes;
 mod paths;
 mod segment;
 mod weight;
+mod weight_regions;
 
 #[cfg(feature = "python")]
 mod python;

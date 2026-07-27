@@ -8,18 +8,6 @@ weighted-gss = { version = "0.2", features = ["engine"] }
 
 The module does not expose graph nodes, pointer identity, structural statistics, parser actions, or application-specific caches.
 
-## Path-local weights
-
-`path_weights(&gss)` iterates over stored path weights without expanding concrete stacks. `filter_map_path_weights(&gss, f)` transforms or removes those stored weights while preserving the immutable stack DAG.
-
-These operations are intentionally named *path* operations. They act before coincident concrete stacks are necessarily joined, so in general:
-
-```text
-f(a ⋁ b) may differ from f(a) ⋁ f(b)
-```
-
-Iteration order and weight placement are not semantic guarantees.
-
 ## Bounded stack inspection
 
 `for_each_stack_top_first(&gss, limit, visit)` visits distinct concrete stacks as top-first slices. Equal stacks are coalesced and their weights joined before the callback. It returns `StackLimitExceeded` rather than traversing more than `limit` distinct stacks.

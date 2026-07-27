@@ -99,6 +99,47 @@ fn merge_joins_weights_when_stack_keys_coincide() {
 }
 
 #[test]
+fn weight_operations_preserve_stack_correlation() {
+    let gss = WeightedGss::from_stacks([
+        (vec![0_u8, 1], Bits(1)),
+        (vec![0_u8, 2], Bits(2)),
+        (vec![9_u8], Bits(4)),
+    ]);
+    assert_eq!(gss.weights().count(), 3);
+
+    let mapped = gss.map_weights(|weight| Bits(weight.0 << 1));
+    assert_eq!(
+        materialize(&mapped),
+        canonical([
+            (vec![0, 1], Bits(2)),
+            (vec![0, 2], Bits(4)),
+            (vec![9], Bits(8)),
+        ])
+    );
+
+    let filtered = gss.filter_map_weights(|weight| (weight.0 != 2).then_some(Bits(weight.0 << 1)));
+    assert_eq!(
+        materialize(&filtered),
+        canonical([(vec![0, 1], Bits(2)), (vec![9], Bits(8))])
+    );
+}
+
+#[test]
+fn weight_iteration_exposes_factored_regions_not_stacks() {
+    let homogeneous = WeightedGss::from_stacks_with_weight([vec![0_u8, 1], vec![0_u8, 2]], Bits(8));
+    let separately_factored =
+        WeightedGss::from_stacks([(vec![0_u8, 1], Bits(1)), (vec![0_u8, 2], Bits(2))])
+            .map_weights(|_| Bits(8));
+
+    assert_eq!(materialize(&homogeneous), materialize(&separately_factored));
+    assert_eq!(
+        homogeneous.weights().copied().collect::<Vec<_>>(),
+        [Bits(8)]
+    );
+    assert_eq!(separately_factored.weights().count(), 2);
+}
+
+#[test]
 fn top_selection_and_empty_stack_are_distinct() {
     let gss = WeightedGss::from_stacks([
         (vec![0_u8, 1, 2], Bits(1)),

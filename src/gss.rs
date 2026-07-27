@@ -2,6 +2,7 @@ use crate::Weight;
 use crate::nodes::*;
 use crate::paths::collect_raw_paths;
 use crate::segment::Segment;
+use crate::weight_regions;
 use rustc_hash::FxHashMap;
 use std::fmt;
 use std::hash::Hash;
@@ -222,6 +223,56 @@ where
                 (top, remainder)
             })
             .collect()
+    }
+
+    /// Iterate over the weights stored in the factored representation.
+    ///
+    /// This is not one item per concrete stack. One stored weight may apply to
+    /// many stacks, equal values may be yielded more than once, and several
+    /// structural paths spelling the same stack may share one yielded weight.
+    /// Iteration order and item count are not semantic properties of the GSS.
+    /// Shared weighted nodes are visited once.
+    pub fn weights(&self) -> impl Iterator<Item = &W> {
+        weight_regions::iter(self)
+    }
+
+    /// Transform each stored weight region while preserving stack sharing.
+    ///
+    /// The callback is applied to the factored representation, not once to the
+    /// joined weight of each concrete stack. No algebraic law is required. If
+    /// the result must be independent of equivalent refactorings, `transform`
+    /// should preserve joins:
+    ///
+    /// ```text
+    /// transform(a.join(b)) == transform(a).join(transform(b))
+    /// ```
+    #[must_use]
+    pub fn map_weights<V>(&self, mut transform: impl FnMut(&W) -> V) -> WeightedGss<S, V>
+    where
+        V: Weight,
+    {
+        self.filter_map_weights(|weight| Some(transform(weight)))
+    }
+
+    /// Transform or discard each stored weight region while preserving sharing.
+    ///
+    /// The callback is applied to the factored representation, not once to the
+    /// joined weight of each concrete stack. `None` removes the complete stack
+    /// sublanguage covered by that stored weight. No algebraic law is required.
+    ///
+    /// For a result independent of equivalent refactorings, lift `join` to
+    /// `Option<V>` by treating `None` as no contribution and joining two
+    /// `Some` values, then require:
+    ///
+    /// ```text
+    /// transform(a.join(b)) == join_options(transform(a), transform(b))
+    /// ```
+    #[must_use]
+    pub fn filter_map_weights<V>(&self, transform: impl FnMut(&W) -> Option<V>) -> WeightedGss<S, V>
+    where
+        V: Weight,
+    {
+        weight_regions::filter_map(self, transform)
     }
 
     /// Join the weights of all represented alternatives.
