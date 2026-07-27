@@ -10,7 +10,7 @@ The graph representation is private. The default Rust API is deliberately limite
 
 ## Installation
 
-The registries currently contain version 0.1.0. The redesigned API documented here is being prepared as 0.2.0.
+The current release is version 0.2.0.
 
 ```toml
 [dependencies]

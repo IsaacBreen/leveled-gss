@@ -36,9 +36,11 @@ Run wheel and sdist installs in clean virtual environments before release.
 - Preserve stack-to-weight correlation.
 - Treat `Weight::join` as associative, commutative, and idempotent.
 - Keep representation details private.
-- Put path-local transformations behind `WeightedGss::paths()`.
+- Document that `weights`, `map_weights`, and `filter_map_weights` operate on factored weight regions.
 - Keep materialisation bounded; do not introduce it into hot stack operations.
-- Preserve the `VirtualStack` fast path for linear prefixes over both complete and branched floors.
+- Keep representation-sensitive fast paths inside the opt-in `engine` module.
+- Preserve `LinearPrefix` behaviour over both complete and branched hidden floors.
+- Keep `StackLanguageId` comparisons scoped to the interner that produced them.
 - Test semantic operations against an explicit stack-to-weight model.
 - Test any pointer-based memoisation against allocator address reuse.
 - Validate substantial API changes through the GLRMask public-API adapter.

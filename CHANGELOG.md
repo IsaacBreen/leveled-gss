@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The project follows semantic versioning.
 
-## [0.2.0] - Unreleased
+## [0.2.0] - 2026-07-27
 
 - Redesign the crate around a small semantic abstraction: weighted stack alternatives, merging, ordinary stack operations, top selection, and bounded canonical materialisation.
 - Keep the graph representation private and the default API independent of parser-engine machinery.
