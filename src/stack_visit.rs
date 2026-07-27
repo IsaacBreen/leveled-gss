@@ -1,15 +1,3 @@
-//! Optional primitives for high-performance parser and state-machine engines.
-//!
-//! Enable the `engine` Cargo feature to use this module. Its operations preserve
-//! graph sharing and avoid materialising all represented stacks. The ordinary
-//! crate API remains limited to weighted-stack semantics.
-
-mod language;
-mod linear_prefix;
-
-pub use language::{StackLanguageId, StackLanguageInterner};
-pub use linear_prefix::LinearPrefix;
-
 use crate::Weight;
 use crate::gss::WeightedGss;
 use crate::nodes::*;
@@ -19,18 +7,52 @@ use std::fmt;
 use std::hash::Hash;
 use std::sync::Arc;
 
+/// Error returned when a bounded operation would materialise too many stacks.
+///
+/// The error is intentionally opaque: the caller already supplied the limit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StackLimitExceeded(());
+
+impl StackLimitExceeded {
+    pub(crate) const fn new() -> Self {
+        Self(())
+    }
+}
+
+impl fmt::Display for StackLimitExceeded {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("the weighted GSS exceeds the configured distinct-stack limit")
+    }
+}
+
+impl std::error::Error for StackLimitExceeded {}
+
 /// Visit distinct concrete stacks in top-first order without unbounded expansion.
 ///
-/// At most `limit` callbacks are made. Equal concrete stacks are coalesced and
-/// their weights joined before the callback. The common one-path case is handled
-/// directly with inline storage; larger shared graphs use a memoised bounded
-/// collector whose work is proportional to the represented language up to the
-/// chosen limit.
+/// At most `max_stacks` callbacks are made. Equal concrete stacks are coalesced
+/// and their weights joined before the callback. Returns [`StackLimitExceeded`]
+/// without invoking the callback when the complete result would exceed the
+/// supplied limit.
 pub fn for_each_stack_top_first<S, W>(
     gss: &WeightedGss<S, W>,
-    limit: usize,
+    max_stacks: usize,
     mut visit: impl FnMut(&[S], &W),
 ) -> Result<(), StackLimitExceeded>
+where
+    S: Clone + Eq + Hash,
+    W: Weight,
+{
+    let stacks = collect_stacks_top_first(gss, max_stacks)?;
+    for (stack, weight) in &stacks {
+        visit(stack, weight);
+    }
+    Ok(())
+}
+
+pub(crate) fn collect_stacks_top_first<S, W>(
+    gss: &WeightedGss<S, W>,
+    max_stacks: usize,
+) -> Result<Vec<(Vec<S>, W)>, StackLimitExceeded>
 where
     S: Clone + Eq + Hash,
     W: Weight,
@@ -38,108 +60,80 @@ where
     if gss.root.paths == 1 {
         let mut stack = SmallVec::<[S; 16]>::new();
         if let Some(weight) = single_weighted_path(&gss.root, &mut stack) {
-            if limit == 0 {
-                return Err(StackLimitExceeded { limit });
+            if max_stacks == 0 {
+                return Err(StackLimitExceeded::new());
             }
-            visit(&stack, weight);
-            return Ok(());
+            return Ok(vec![(stack.into_vec(), weight.clone())]);
         }
     }
 
     let mut weighted_memo = FxHashMap::default();
     let mut unweighted_memo = FxHashMap::default();
-    let stacks =
-        collect_weighted_stacks(&gss.root, limit, &mut weighted_memo, &mut unweighted_memo)
-            .ok_or(StackLimitExceeded { limit })?;
-    for (stack, weight) in stacks.iter() {
-        visit(stack, weight);
-    }
-    Ok(())
+    let stacks = collect_weighted_stacks(
+        &gss.root,
+        max_stacks,
+        &mut weighted_memo,
+        &mut unweighted_memo,
+    )
+    .ok_or_else(StackLimitExceeded::new)?;
+    Ok(Arc::unwrap_or_clone(stacks))
 }
-
-/// Try to expose a mutable linear top prefix over an unchanged hidden floor.
-///
-/// Returns `None` when the current representation does not have one homogeneous
-/// weight and a directly accessible linear prefix.
-#[must_use]
-pub fn linear_prefix<S, W>(gss: &WeightedGss<S, W>) -> Option<LinearPrefix<S, W>>
-where
-    S: Clone + Eq + Hash,
-    W: Weight,
-{
-    LinearPrefix::from_gss(gss)
-}
-
-/// Error returned when bounded stack visitation would exceed its stack limit.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct StackLimitExceeded {
-    /// Maximum number of distinct concrete stacks allowed by the caller.
-    pub limit: usize,
-}
-
-impl fmt::Display for StackLimitExceeded {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "the weighted GSS contains more than {} distinct stacks",
-            self.limit
-        )
-    }
-}
-
-impl std::error::Error for StackLimitExceeded {}
 
 fn single_weighted_path<'a, S, W>(
-    node: &'a WRef<S, W>,
+    mut node: &'a WRef<S, W>,
     output: &mut SmallVec<[S; 16]>,
 ) -> Option<&'a W>
 where
     S: Clone,
 {
-    match &node.kind {
-        WKind::Shared { weight, stacks } => {
-            single_unweighted_path(stacks, output)?;
-            Some(weight.as_ref())
-        }
-        WKind::Branch { empty, children } => {
-            if empty.len() == 1 && children.is_empty() {
-                return Some(empty[0].as_ref());
+    loop {
+        match &node.kind {
+            WKind::Shared { weight, stacks } => {
+                single_unweighted_path(stacks, output)?;
+                return Some(weight.as_ref());
             }
-            let mut entries = children
-                .iter()
-                .flat_map(|(top, values)| values.iter().map(move |child| (top, child)));
-            let (top, child) = entries.next()?;
-            if entries.next().is_some() || !empty.is_empty() {
-                return None;
+            WKind::Branch { empty, children } => {
+                if empty.len() == 1 && children.is_empty() {
+                    return Some(empty[0].as_ref());
+                }
+                let mut entries = children
+                    .iter()
+                    .flat_map(|(top, values)| values.iter().map(move |child| (top, child)));
+                let (top, child) = entries.next()?;
+                if entries.next().is_some() || !empty.is_empty() {
+                    return None;
+                }
+                output.push(top.clone());
+                node = child;
             }
-            output.push(top.clone());
-            single_weighted_path(child, output)
         }
     }
 }
 
-fn single_unweighted_path<S>(node: &URef<S>, output: &mut SmallVec<[S; 16]>) -> Option<()>
+fn single_unweighted_path<S>(mut node: &URef<S>, output: &mut SmallVec<[S; 16]>) -> Option<()>
 where
     S: Clone,
 {
-    match &node.kind {
-        UKind::Segment { values, next } => {
-            output.extend(values.iter().cloned());
-            single_unweighted_path(next, output)
-        }
-        UKind::Branch { empty, children } => {
-            if *empty && children.is_empty() {
-                return Some(());
+    loop {
+        match &node.kind {
+            UKind::Segment { values, next } => {
+                output.extend(values.iter().cloned());
+                node = next;
             }
-            let mut entries = children
-                .iter()
-                .flat_map(|(top, values)| values.iter().map(move |child| (top, child)));
-            let (top, child) = entries.next()?;
-            if entries.next().is_some() || *empty {
-                return None;
+            UKind::Branch { empty, children } => {
+                if *empty && children.is_empty() {
+                    return Some(());
+                }
+                let mut entries = children
+                    .iter()
+                    .flat_map(|(top, values)| values.iter().map(move |child| (top, child)));
+                let (top, child) = entries.next()?;
+                if entries.next().is_some() || *empty {
+                    return None;
+                }
+                output.push(top.clone());
+                node = child;
             }
-            output.push(top.clone());
-            single_unweighted_path(child, output)
         }
     }
 }

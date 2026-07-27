@@ -1,9 +1,9 @@
 use crate::Weight;
+use crate::materialize::materialize_stacks;
 use crate::nodes::*;
-use crate::paths::collect_raw_paths;
 use crate::segment::Segment;
+use crate::stack_visit::{StackLimitExceeded, collect_stacks_top_first};
 use crate::weight_regions;
-use rustc_hash::FxHashMap;
 use std::fmt;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -282,19 +282,18 @@ where
 
     /// Materialise canonical bottom-to-top stacks and their joined weights.
     ///
-    /// `max_paths` bounds the number of internal structural paths traversed,
-    /// rather than the number of distinct output stacks. The method returns an
-    /// error instead of silently truncating.
-    pub fn to_stacks(&self, max_paths: usize) -> Result<Vec<(Vec<S>, W)>, PathLimitExceeded> {
-        let raw = collect_raw_paths(&self.root, max_paths)?;
-        let mut canonical: FxHashMap<Vec<S>, W> = FxHashMap::default();
-        for (stack, weight) in raw {
-            canonical
-                .entry(stack)
-                .and_modify(|current| *current = current.join(&weight))
-                .or_insert(weight);
+    /// `max_stacks` bounds the number of distinct concrete stacks returned.
+    /// The method returns [`StackLimitExceeded`] instead of silently truncating.
+    pub fn to_stacks(&self, max_stacks: usize) -> Result<Vec<(Vec<S>, W)>, StackLimitExceeded> {
+        if self.root.paths == 1 {
+            let mut stacks = collect_stacks_top_first(self, max_stacks)?;
+            for (stack, _) in &mut stacks {
+                stack.reverse();
+            }
+            Ok(stacks)
+        } else {
+            materialize_stacks(&self.root, max_stacks)
         }
-        Ok(canonical.into_iter().collect())
     }
 }
 
@@ -307,22 +306,3 @@ impl<S, W> fmt::Debug for WeightedGss<S, W> {
             .finish()
     }
 }
-
-/// Error returned when bounded materialisation would traverse too many paths.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PathLimitExceeded {
-    /// Maximum structural path count allowed by the caller.
-    pub limit: usize,
-}
-
-impl fmt::Display for PathLimitExceeded {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "the weighted GSS contains more than {} structural paths",
-            self.limit
-        )
-    }
-}
-
-impl std::error::Error for PathLimitExceeded {}

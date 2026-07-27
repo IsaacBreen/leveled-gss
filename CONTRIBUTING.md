@@ -38,9 +38,8 @@ Run wheel and sdist installs in clean virtual environments before release.
 - Keep representation details private.
 - Document that `weights`, `map_weights`, and `filter_map_weights` operate on factored weight regions.
 - Keep materialisation bounded; do not introduce it into hot stack operations.
-- Keep representation-sensitive fast paths inside the opt-in `engine` module.
+- Keep representation-sensitive implementation details private.
 - Preserve `LinearPrefix` behaviour over both complete and branched hidden floors.
-- Keep `StackLanguageId` comparisons scoped to the interner that produced them.
 - Test semantic operations against an explicit stack-to-weight model.
 - Test any pointer-based memoisation against allocator address reuse.
 - Validate substantial API changes through the GLRMask public-API adapter.

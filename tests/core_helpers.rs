@@ -1,8 +1,5 @@
-#![cfg(feature = "engine")]
-
 use std::collections::BTreeMap;
-use weighted_gss::engine::{StackLanguageInterner, for_each_stack_top_first, linear_prefix};
-use weighted_gss::{Weight, WeightedGss};
+use weighted_gss::{Weight, WeightedGss, for_each_stack_top_first, linear_prefix};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Bits(u8);
@@ -36,7 +33,10 @@ fn bounded_visit_rejects_large_shared_language_without_expanding_it() {
     }
 
     let error = for_each_stack_top_first(&gss, 32, |_, _| {}).unwrap_err();
-    assert_eq!(error.limit, 32);
+    assert_eq!(
+        error.to_string(),
+        "the weighted GSS exceeds the configured distinct-stack limit"
+    );
 }
 
 #[test]
@@ -63,30 +63,29 @@ fn linear_prefix_mutation_preserves_hidden_floor() {
 }
 
 #[test]
-fn language_ids_ignore_weights_and_layout() {
-    let left = WeightedGss::from_stacks([([0_u8, 1, 2], Bits(1)), ([0_u8, 1, 3], Bits(2))]);
-    let right = WeightedGss::from_stack([0_u8, 1, 3], Bits(8))
-        .merge(&WeightedGss::from_stack([0_u8, 1, 2], Bits(16)));
-    let different = WeightedGss::from_stack([0_u8, 1, 4], Bits(1));
-
-    let mut interner = StackLanguageInterner::new();
-    assert_eq!(interner.intern(&left), interner.intern(&right));
-    assert_ne!(interner.intern(&left), interner.intern(&different));
-}
-
-#[test]
-fn language_interner_handles_deep_segment_chains_without_recursion() {
+fn bounded_visit_handles_a_deep_single_stack_iteratively() {
     let mut gss = WeightedGss::from_stack(Vec::<u32>::new(), Bits(1));
     for symbol in 0..20_000_u32 {
         gss = gss.push(symbol);
     }
 
-    let mut interner = StackLanguageInterner::new();
-    let first = interner.intern(&gss);
-    assert_eq!(first, interner.intern(&gss));
+    let mut seen = 0;
+    for_each_stack_top_first(&gss, 1, |stack, weight| {
+        assert_eq!(stack.len(), 20_000);
+        assert_eq!(stack.first(), Some(&19_999));
+        assert_eq!(stack.last(), Some(&0));
+        assert_eq!(*weight, Bits(1));
+        seen += 1;
+    })
+    .unwrap();
+    assert_eq!(seen, 1);
+
+    let [(stack, weight)] = gss.to_stacks(1).unwrap().try_into().unwrap();
+    assert_eq!(stack.len(), 20_000);
+    assert_eq!(stack.first(), Some(&0));
+    assert_eq!(stack.last(), Some(&19_999));
+    assert_eq!(weight, Bits(1));
 
     // Dropping an artificially deep Arc chain is independently recursive.
-    // This test isolates canonicalisation rather than that representation limit.
     std::mem::forget(gss);
-    std::mem::forget(interner);
 }

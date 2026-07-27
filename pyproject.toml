@@ -42,4 +42,4 @@ features = ["python"]
 python-source = "python"
 module-name = "weighted_gss._native"
 strip = true
-exclude = [".github/**", "python/tests/**", "tests/**", "examples/**", "RELEASING.md"]
+exclude = [".github/**", "python/tests/**", "tests/**", "examples/**", "RELEASING.md", "docs/validation/**"]

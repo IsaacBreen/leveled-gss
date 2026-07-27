@@ -58,6 +58,6 @@ All operations are persistent: the original value remains usable.
 Both methods may legitimately return `None` for an unweighted GSS; absence is therefore reported by an exception rather than overloaded onto `None`.
 - `is_empty()` and Boolean conversion test whether alternatives exist.
 - `max_depth()` returns the maximum stack depth.
-- `to_stacks(max_paths=4096)` materialises canonical `(stack, weight)` pairs. It raises `OverflowError` rather than silently traversing more than the requested number of structural paths.
+- `to_stacks(max_stacks=4096)` materialises canonical `(stack, weight)` pairs. It raises `OverflowError` rather than returning more than the requested number of distinct stacks.
 
 The Python binding intentionally exposes only semantic stack operations. Raw graph structure and implementation-specific parser machinery are not part of the supported API.

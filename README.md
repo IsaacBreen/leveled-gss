@@ -6,21 +6,21 @@ A persistent weighted graph-structured stack.
 
 `WeightedGss<S, W>` represents a finite collection of stack alternatives. Each stack carries a weight. When stack operations make alternatives denote the same concrete stack, their weights are joined.
 
-The graph representation is private. The default Rust API is deliberately limited to construction, merging, ordinary stack operations, top selection, and bounded materialisation. High-performance parser engines can opt into a small advanced module without exposing graph internals.
+The graph representation is private. The Rust API contains semantic stack operations, bounded concrete-stack inspection, and a linear-prefix fast path without exposing graph nodes or canonical representation machinery.
 
 ## Installation
 
-The current release is version 0.2.0.
+The latest registry release is version 0.2.0. The current `main` branch is preparing the breaking 0.3.0 API described here.
 
 ```toml
 [dependencies]
-weighted-gss = { git = "https://github.com/IsaacBreen/weighted-gss", branch = "rewrite/from-scratch-20260725" }
+weighted-gss = { git = "https://github.com/IsaacBreen/weighted-gss.git", branch = "main" }
 ```
 
 Python 3.8 or later:
 
 ```bash
-python -m pip install "git+https://github.com/IsaacBreen/weighted-gss@rewrite/from-scratch-20260725"
+python -m pip install "git+https://github.com/IsaacBreen/weighted-gss@main"
 ```
 
 ## Rust
@@ -58,13 +58,16 @@ assert_eq!(
 
 A weight must implement ordinary equality. `join` must be associative, commutative, and idempotent.
 
-The exported Rust names are only:
+The exported Rust names are:
 
 ```rust
 Weight
 WeightedGss
 Gss
-PathLimitExceeded
+LinearPrefix
+StackLimitExceeded
+linear_prefix
+for_each_stack_top_first
 ```
 
 The core methods are:
@@ -76,26 +79,17 @@ The core methods are:
 - weights: `weights`, `map_weights`, `filter_map_weights`, `joined_weight`;
 - observations: `is_empty`, `max_depth`, `to_stacks`.
 
-`to_stacks(max_paths)` returns canonical `(stack, weight)` pairs and fails rather than silently exceeding the requested structural traversal bound.
+`to_stacks(max_stacks)` returns canonical `(stack, weight)` pairs and fails with the opaque `StackLimitExceeded` error rather than returning more than the requested number of distinct stacks.
 
 `weights()` iterates stored factored weight regions, not concrete stacks. One weight may cover many stacks, equal weights may appear more than once, and count/order are unspecified. `map_weights` and `filter_map_weights` transform those regions without materialising stacks; see [Semantics and invariants](docs/semantics.md) for the representation-independence condition.
 
-## Optional engine API
+## Bounded inspection and linear prefixes
 
-Parser and state-machine implementations can enable a compact set of operations that avoid materialising shared stack languages:
+`for_each_stack_top_first(&gss, max_stacks, visit)` visits canonical distinct stacks as borrowed top-first slices. It completes only when the complete result fits within `max_stacks`.
 
-```toml
-[dependencies]
-weighted-gss = { version = "0.2", features = ["engine"] }
-```
+`linear_prefix(&gss)` returns a `LinearPrefix` when the current value has one homogeneous weight and a directly accessible linear top prefix. The hidden floor may still branch. The view supports indexed reads from the top, pushes, bounded pops, and conversion back into a `WeightedGss` while retaining the unchanged floor.
 
-The opt-in `weighted_gss::engine` module contains only:
-
-- `for_each_stack_top_first` for bounded, allocation-light concrete-stack inspection;
-- `linear_prefix` and `LinearPrefix` for mutating a homogeneous linear top prefix while retaining its hidden floor;
-- `StackLanguageInterner` and `StackLanguageId` for exact stack-language IDs in fixpoint visited sets.
-
-Batched parser actions, depth filters, representation IDs, structural statistics, and graph nodes remain application-local or private. See [Engine API](docs/engine.md).
+Neither operation exposes graph nodes, structural paths, or canonical stack-language IDs.
 
 ## Python
 
@@ -126,8 +120,6 @@ Python weights need not be hashable. Exceptions raised by `join()` are propagate
 ## Semantics and validation
 
 The implementation is tested against an explicit stack-to-weight map under randomized sequences of construction, merge, push, pop, top selection, and branch selection. Rust 1.85 is the declared minimum version.
-
-The opt-in engine API is validated by adapting GLRMask without exposing graph nodes or restoring its historical convenience surface. The ordinary default API remains independent of parser-engine concerns.
 
 See [Semantics and invariants](docs/semantics.md).
 

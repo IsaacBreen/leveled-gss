@@ -57,7 +57,7 @@ def materialize(gss: WeightedGSS):
 
 class WeightedGSSTest(unittest.TestCase):
     def test_version_and_docs(self):
-        self.assertEqual(weighted_gss.__version__, "0.2.0")
+        self.assertEqual(weighted_gss.__version__, "0.3.0")
         self.assertIn("persistent", WeightedGSS.__doc__.lower())
         self.assertIn("OverflowError", WeightedGSS.to_stacks.__doc__)
 
@@ -204,8 +204,8 @@ class WeightedGSSTest(unittest.TestCase):
                 [gss.push(level * 2), gss.push(level * 2 + 1)]
             )
         with self.assertRaises(OverflowError):
-            gss.to_stacks(100)
-        self.assertEqual(len(gss.to_stacks(1 << 12)), 1 << 12)
+            gss.to_stacks(max_stacks=100)
+        self.assertEqual(len(gss.to_stacks(max_stacks=1 << 12)), 1 << 12)
 
     def test_rejects_unhashable_stack_values_and_negative_pop(self):
         with self.assertRaises(TypeError):

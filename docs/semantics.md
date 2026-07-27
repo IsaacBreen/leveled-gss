@@ -84,7 +84,9 @@ When operations make two stacks coincide, their weights are joined.
 
 `joined_weight()` joins the weights of every represented alternative and returns `None` only for an empty GSS.
 
-`to_stacks(max_paths)` returns canonical bottom-to-top stacks with coincident weights joined. The bound limits internal structural paths traversed, not merely the number of output entries. Exceeding it returns `PathLimitExceeded`; materialisation never silently truncates.
+`to_stacks(max_stacks)` returns canonical bottom-to-top stacks with coincident weights joined. The bound is the number of distinct concrete stacks in the result. Exceeding it returns the opaque `StackLimitExceeded`; materialisation never silently truncates and does not expose encoded-path counts.
+
+`for_each_stack_top_first(gss, max_stacks, visit)` uses the same semantic bound while presenting each stack as a borrowed top-first slice.
 
 ## Persistence
 
@@ -92,8 +94,8 @@ Operations return new values and retain immutable sharing where possible. Existi
 
 `WeightedGss` deliberately does not implement equality or hashing. Representation equality, raw-path equality, and equality of the extensional stack-to-weight mapping are distinct concepts.
 
-## Optional engine boundary
+## Linear-prefix fast path
 
-The default API does not expose graph paths, representation IDs, structural profiling, parser stack effects, or canonical language machinery.
+`linear_prefix(gss)` exposes a mutable `LinearPrefix` only when the representation has one homogeneous weight and a directly accessible linear top prefix. Its hidden floor may remain branched. Converting the view back into a `WeightedGss` preserves that unchanged floor.
 
-With the `engine` feature enabled, a deliberately small module exposes bounded semantic stack inspection, a linear-prefix view, and exact unweighted stack-language IDs. These operations preserve sharing without making graph layout itself public. Their contracts are documented in [Engine API](engine.md).
+The public API does not expose graph paths, representation IDs, structural profiling, parser stack effects, or canonical stack-language machinery.

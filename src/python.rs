@@ -217,10 +217,10 @@ impl PyWeightedGss {
             .collect()
     }
 
-    fn to_python_stacks(&self, py: Python<'_>, max_paths: usize) -> PyResult<Py<PyAny>> {
-        let stacks = run_callbacks(|| self.inner.to_stacks(max_paths))?.map_err(|_| {
+    fn to_python_stacks(&self, py: Python<'_>, max_stacks: usize) -> PyResult<Py<PyAny>> {
+        let stacks = run_callbacks(|| self.inner.to_stacks(max_stacks))?.map_err(|_| {
             PyOverflowError::new_err(format!(
-                "the GSS contains more than {max_paths} structural paths; increase max_paths"
+                "the GSS contains more than {max_stacks} distinct stacks; increase max_stacks"
             ))
         })?;
         let result = PyList::empty(py);
@@ -564,10 +564,10 @@ impl PyWeightedGss {
     /// Materialize extensional ``(stack, weight)`` pairs.
     ///
     /// Raises ``OverflowError`` instead of silently truncating when more than
-    /// ``max_paths`` structural paths would be traversed.
-    #[pyo3(signature = (max_paths = 4096))]
-    fn to_stacks(&self, py: Python<'_>, max_paths: usize) -> PyResult<Py<PyAny>> {
-        self.to_python_stacks(py, max_paths)
+    /// ``max_stacks`` distinct stacks would be materialized.
+    #[pyo3(signature = (max_stacks = 4096))]
+    fn to_stacks(&self, py: Python<'_>, max_stacks: usize) -> PyResult<Py<PyAny>> {
+        self.to_python_stacks(py, max_stacks)
     }
 
     /// Return whether no alternatives are represented.

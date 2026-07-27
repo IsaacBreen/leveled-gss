@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. The project follows semantic versioning.
 
+## [0.3.0] - Unreleased
+
+- Remove the `engine` feature and `weighted_gss::engine` module.
+- Remove `StackLanguageInterner` and `StackLanguageId`; canonical fixpoint-key machinery is application-specific rather than part of the stack abstraction.
+- Export `LinearPrefix`, `linear_prefix`, and `for_each_stack_top_first` directly from the crate root.
+- Replace representation-sensitive `PathLimitExceeded` with one opaque `StackLimitExceeded` shared by bounded visitation and materialisation.
+- Make `to_stacks(max_stacks)` bound distinct concrete output stacks rather than internal encoded paths.
+- Rename the Python `to_stacks` keyword from `max_paths` to `max_stacks`.
+
 ## [0.2.0] - 2026-07-27
 
 - Redesign the crate around a small semantic abstraction: weighted stack alternatives, merging, ordinary stack operations, top selection, and bounded canonical materialisation.

@@ -6,6 +6,19 @@ use smallvec::SmallVec;
 use std::hash::Hash;
 use std::sync::Arc;
 
+/// Try to expose a mutable linear top prefix over an unchanged hidden floor.
+///
+/// Returns `None` when the current representation does not have one homogeneous
+/// weight and a directly accessible linear prefix.
+#[must_use]
+pub fn linear_prefix<S, W>(gss: &WeightedGss<S, W>) -> Option<LinearPrefix<S, W>>
+where
+    S: Clone + Eq + Hash,
+    W: Weight,
+{
+    LinearPrefix::from_gss(gss)
+}
+
 /// Mutable view of a linear top prefix over an unchanged hidden floor.
 ///
 /// The hidden floor may still be branched. Use [`Self::floor_is_empty`] to test

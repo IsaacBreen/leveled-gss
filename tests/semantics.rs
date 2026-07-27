@@ -24,7 +24,7 @@ fn canonical(entries: impl IntoIterator<Item = (Vec<u8>, Bits)>) -> Model {
 }
 
 fn materialize(gss: &WeightedGss<u8, Bits>) -> Model {
-    canonical(gss.to_stacks(1_000_000).expect("test path limit"))
+    canonical(gss.to_stacks(1_000_000).expect("test stack limit"))
 }
 
 fn from_model(model: &Model) -> WeightedGss<u8, Bits> {
@@ -250,8 +250,18 @@ fn materialization_limit_is_never_silent() {
     for level in 0..12_u8 {
         gss = gss.push(level * 2).merge(&gss.push(level * 2 + 1));
     }
-    assert_eq!(gss.to_stacks(100).unwrap_err().limit, 100);
+    assert!(gss.to_stacks(100).is_err());
     assert_eq!(gss.to_stacks(1 << 12).unwrap().len(), 1 << 12);
+}
+
+#[test]
+fn materialization_limit_counts_distinct_stacks_not_encoded_paths() {
+    let left = WeightedGss::from_stacks_with_weight([vec![0_u8, 1], vec![0, 2]], Bits(1));
+    let right = WeightedGss::from_stacks_with_weight([vec![0_u8, 1], vec![0, 3]], Bits(1));
+    let gss = left.merge(&right);
+
+    assert_eq!(gss.to_stacks(3).unwrap().len(), 3);
+    assert!(gss.to_stacks(2).is_err());
 }
 
 #[test]

@@ -1,5 +1,8 @@
 use std::collections::BTreeSet;
-use weighted_gss::{Gss, Weight, WeightedGss};
+use weighted_gss::{
+    Gss, LinearPrefix, StackLimitExceeded, Weight, WeightedGss, for_each_stack_top_first,
+    linear_prefix,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Bits(u32);
@@ -31,6 +34,22 @@ fn public_api_reads_like_weighted_stack_operations() {
     let branch = stacks.pop_top(&2).push(8);
     assert_eq!(branch.top(), Some(8));
     assert_eq!(branch.to_stacks(8).unwrap(), vec![(vec![0, 1, 8], Bits(1))]);
+
+    let mut visited = Vec::new();
+    for_each_stack_top_first(&branch, 1, |stack, weight| {
+        visited.push((stack.to_vec(), *weight));
+    })
+    .unwrap();
+    assert_eq!(visited, vec![(vec![8, 1, 0], Bits(1))]);
+
+    let prefix: LinearPrefix<_, _> = linear_prefix(&branch).expect("linear prefix");
+    assert_eq!(prefix.get(0), Some(&8));
+
+    let error: StackLimitExceeded = branch.to_stacks(0).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "the weighted GSS exceeds the configured distinct-stack limit"
+    );
 }
 
 #[test]
