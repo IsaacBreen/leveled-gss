@@ -51,11 +51,6 @@ impl<S, W> WeightedGss<S, W> {
     pub fn max_depth(&self) -> usize {
         self.root.max_depth
     }
-
-    #[cfg(feature = "python")]
-    pub(crate) fn path_count_at_most(&self, limit: usize) -> usize {
-        self.root.paths.min(limit)
-    }
 }
 
 impl<S, W> WeightedGss<S, W>
@@ -85,9 +80,6 @@ where
     }
 
     /// Construct several bottom-to-top stacks carrying one shared weight.
-    ///
-    /// This constructor can retain more sharing than repeatedly constructing
-    /// and merging the stacks independently.
     #[must_use]
     pub fn from_stacks_with_weight<I, T>(stacks: I, weight: W) -> Self
     where
@@ -113,14 +105,14 @@ where
 
     /// Construct from bottom-to-top stack and weight pairs.
     #[must_use]
-    pub fn from_stacks<I, T>(stacks: I) -> Self
+    pub fn from_stacks<I, T>(entries: I) -> Self
     where
         I: IntoIterator<Item = (T, W)>,
         T: IntoIterator<Item = S>,
     {
         let end = u_end();
         Self::merge_all(
-            stacks
+            entries
                 .into_iter()
                 .map(|(stack, weight)| Self::from_stack_with_end(stack, weight, &end)),
         )
@@ -145,11 +137,11 @@ where
         }
     }
 
-    /// Push `value` onto every represented stack.
+    /// Push `symbol` onto every represented stack.
     #[must_use]
-    pub fn push(&self, value: S) -> Self {
+    pub fn push(&self, symbol: S) -> Self {
         Self {
-            root: w_push(&self.root, value),
+            root: w_push(&self.root, symbol),
         }
     }
 
@@ -310,7 +302,7 @@ impl<S, W> fmt::Debug for WeightedGss<S, W> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("WeightedGss")
-            .field("alternatives", &self.root.paths)
+            .field("is_empty", &self.is_empty())
             .field("max_depth", &self.root.max_depth)
             .finish()
     }

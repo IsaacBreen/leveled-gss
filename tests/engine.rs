@@ -63,13 +63,30 @@ fn linear_prefix_mutation_preserves_hidden_floor() {
 }
 
 #[test]
-fn language_keys_ignore_weights_and_layout() {
+fn language_ids_ignore_weights_and_layout() {
     let left = WeightedGss::from_stacks([([0_u8, 1, 2], Bits(1)), ([0_u8, 1, 3], Bits(2))]);
     let right = WeightedGss::from_stack([0_u8, 1, 3], Bits(8))
         .merge(&WeightedGss::from_stack([0_u8, 1, 2], Bits(16)));
     let different = WeightedGss::from_stack([0_u8, 1, 4], Bits(1));
 
     let mut interner = StackLanguageInterner::new();
-    assert_eq!(interner.key(&left), interner.key(&right));
-    assert_ne!(interner.key(&left), interner.key(&different));
+    assert_eq!(interner.intern(&left), interner.intern(&right));
+    assert_ne!(interner.intern(&left), interner.intern(&different));
+}
+
+#[test]
+fn language_interner_handles_deep_segment_chains_without_recursion() {
+    let mut gss = WeightedGss::from_stack(Vec::<u32>::new(), Bits(1));
+    for symbol in 0..20_000_u32 {
+        gss = gss.push(symbol);
+    }
+
+    let mut interner = StackLanguageInterner::new();
+    let first = interner.intern(&gss);
+    assert_eq!(first, interner.intern(&gss));
+
+    // Dropping an artificially deep Arc chain is independently recursive.
+    // This test isolates canonicalisation rather than that representation limit.
+    std::mem::forget(gss);
+    std::mem::forget(interner);
 }

@@ -96,4 +96,4 @@ Operations return new values and retain immutable sharing where possible. Existi
 
 The default API does not expose graph paths, representation IDs, structural profiling, parser stack effects, or canonical language machinery.
 
-With the `engine` feature enabled, a deliberately small module exposes bounded semantic stack inspection, a linear-prefix view, and exact unweighted stack-language keys. These operations preserve sharing without making graph layout itself public. Their contracts are documented in [Engine API](engine.md).
+With the `engine` feature enabled, a deliberately small module exposes bounded semantic stack inspection, a linear-prefix view, and exact unweighted stack-language IDs. These operations preserve sharing without making graph layout itself public. Their contracts are documented in [Engine API](engine.md).

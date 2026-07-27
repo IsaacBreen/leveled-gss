@@ -93,7 +93,7 @@ The opt-in `weighted_gss::engine` module contains only:
 
 - `for_each_stack_top_first` for bounded, allocation-light concrete-stack inspection;
 - `linear_prefix` and `LinearPrefix` for mutating a homogeneous linear top prefix while retaining its hidden floor;
-- `StackLanguageInterner` and `StackLanguageId` for exact fixpoint keys.
+- `StackLanguageInterner` and `StackLanguageId` for exact stack-language IDs in fixpoint visited sets.
 
 Batched parser actions, depth filters, representation IDs, structural statistics, and graph nodes remain application-local or private. See [Engine API](docs/engine.md).
 

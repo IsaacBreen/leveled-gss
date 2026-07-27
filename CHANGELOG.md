@@ -12,7 +12,8 @@ All notable changes to this project are documented here. The project follows sem
 - Preserve immutable stack DAG sharing and share terminal stack suffixes across constructed alternatives.
 - Rebuild the Python 3.8+ ABI3 binding around semantic stack operations, typed stubs, unhashable weights, and normal propagation of Python callback exceptions.
 - Add core `weights`, `map_weights`, and `filter_map_weights` operations over documented factored weight regions.
-- Add an opt-in `engine` module containing only bounded concrete-stack inspection, a linear-prefix view, and exact stack-language keys.
+- Add an opt-in `engine` module containing only bounded concrete-stack inspection, a linear-prefix view, and exact stack-language IDs.
+- Make stack-language interning iterative for deep graphs and canonical unions while preserving the recursive fast path for shallow frontiers.
 - Remove representation identity, structural profiling, raw graph traversal, batched stack operations, and parser-specific conveniences from the supported Rust API.
 - Validate core semantics against an explicit stack-to-weight map and test the declared Rust 1.85 minimum in CI.
 - Validate the opt-in engine surface through a GLRMask adapter while keeping GLRMask-specific conveniences in GLRMask.

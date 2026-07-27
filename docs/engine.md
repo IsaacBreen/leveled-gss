@@ -27,11 +27,11 @@ The implementation handles the common one-stack case inline and uses memoised bo
 
 A nonzero result from `popn` is the number of requested pops that reached beyond the accessible prefix. Applications can then convert back to a GSS and handle the remainder generally.
 
-## Exact stack-language keys
+## Exact stack-language IDs
 
-`StackLanguageInterner::key(&gss)` returns an exact `StackLanguageId` for the unweighted set of concrete stacks. Weights, duplicate representation paths, segment boundaries, and DAG layout do not affect the key.
+`StackLanguageInterner::intern(&gss)` returns an exact `StackLanguageId` for the unweighted set of concrete stacks. Weights, duplicate representation paths, segment boundaries, and DAG layout do not affect the key.
 
-IDs are meaningful only within one interner. Use one interner for one fixpoint computation.
+IDs are meaningful only within one interner. Use one interner for one fixpoint computation. Comparing IDs from different interners is meaningless and may compare equal.
 
 ## Deliberately application-local
 

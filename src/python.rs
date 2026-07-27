@@ -609,18 +609,11 @@ impl PyWeightedGss {
     }
 
     fn __repr__(&self) -> String {
-        let paths = self.inner.path_count_at_most(17);
-        if paths <= 16 {
-            format!(
-                "WeightedGSS(paths={paths}, max_depth={})",
-                self.inner.max_depth()
-            )
-        } else {
-            format!(
-                "WeightedGSS(paths>16, max_depth={})",
-                self.inner.max_depth()
-            )
-        }
+        format!(
+            "WeightedGSS(is_empty={}, max_depth={})",
+            self.inner.is_empty(),
+            self.inner.max_depth()
+        )
     }
 }
 
