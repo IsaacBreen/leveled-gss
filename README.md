@@ -10,7 +10,7 @@ The graph representation is private. The Rust API contains semantic stack operat
 
 ## Installation
 
-The latest registry release is version 0.2.0. The current `main` branch is preparing the breaking 0.3.0 API described here.
+The latest registry release is version 0.2.0. The current `main` branch is preparing version 0.2.1 with the API described here.
 
 ```toml
 [dependencies]

@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The project follows semantic versioning.
 
-## [0.3.0] - Unreleased
+## [0.2.1] - Unreleased
 
 - Remove the `engine` feature and `weighted_gss::engine` module.
 - Remove `StackLanguageInterner` and `StackLanguageId`; canonical fixpoint-key machinery is application-specific rather than part of the stack abstraction.

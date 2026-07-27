@@ -57,7 +57,7 @@ def materialize(gss: WeightedGSS):
 
 class WeightedGSSTest(unittest.TestCase):
     def test_version_and_docs(self):
-        self.assertEqual(weighted_gss.__version__, "0.3.0")
+        self.assertEqual(weighted_gss.__version__, "0.2.1")
         self.assertIn("persistent", WeightedGSS.__doc__.lower())
         self.assertIn("OverflowError", WeightedGSS.to_stacks.__doc__)
 
