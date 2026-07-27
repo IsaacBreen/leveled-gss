@@ -26,10 +26,13 @@ jobs:
           components: rustfmt, clippy
       - run: cargo fmt --all --check
       - run: cargo test --all-targets
+      - run: cargo test --features engine --all-targets
       - run: cargo test --doc
       - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo clippy --features engine --all-targets -- -D warnings
       - run: cargo clippy --features python --all-targets -- -D warnings
-      - run: cargo doc --no-deps
+      - run: cargo clippy --features "engine python" --all-targets -- -D warnings
+      - run: cargo doc --features engine --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
 
@@ -42,7 +45,9 @@ jobs:
           python-version: "3.12"
       - uses: dtolnay/rust-toolchain@1.85.0
       - run: cargo check --all-targets
+      - run: cargo check --features engine --all-targets
       - run: cargo check --features python --all-targets
+      - run: cargo check --features "engine python" --all-targets
 
   python-platforms:
     strategy:

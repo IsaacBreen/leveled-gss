@@ -7,14 +7,6 @@ use std::hash::Hash;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct StackLanguageId(u32);
 
-impl StackLanguageId {
-    /// Return the compact process-local integer identifier.
-    #[must_use]
-    pub const fn as_u32(self) -> u32 {
-        self.0
-    }
-}
-
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct TrieNode<S> {
     empty: bool,
@@ -74,12 +66,6 @@ where
         let id = self.weighted_key(&gss.root, &mut weighted_memo);
         self.weighted_scratch = weighted_memo;
         id
-    }
-
-    /// Number of canonical trie nodes retained by this interner.
-    #[must_use]
-    pub fn node_count(&self) -> usize {
-        self.nodes.len()
     }
 
     fn intern(&mut self, empty: bool, mut children: Vec<(S, StackLanguageId)>) -> StackLanguageId {

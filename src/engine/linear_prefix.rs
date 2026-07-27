@@ -1,5 +1,4 @@
 use crate::Weight;
-use crate::effects::StackEffect;
 use crate::gss::WeightedGss;
 use crate::nodes::{UKind, URef, WKind, u_has_empty, u_segment, w_shared};
 use crate::segment::Segment;
@@ -7,20 +6,19 @@ use smallvec::SmallVec;
 use std::hash::Hash;
 use std::sync::Arc;
 
-/// Mutable fast-path view of a linear top prefix over an arbitrary hidden floor.
+/// Mutable view of a linear top prefix over an unchanged hidden floor.
 ///
-/// A virtual stack is an optimisation probe, not proof that the entire GSS
-/// denotes one concrete stack. [`Self::is_complete`] reports whether the hidden
-/// floor is exactly the empty stack.
+/// The hidden floor may still be branched. Use [`Self::floor_is_empty`] to test
+/// whether the prefix represents one complete concrete stack.
 #[derive(Clone)]
-pub struct VirtualStack<S, W> {
+pub struct LinearPrefix<S, W> {
     values: Option<Segment<S>>,
     next: URef<S>,
     weight: Arc<W>,
     pending: SmallVec<[S; 2]>,
 }
 
-impl<S, W> VirtualStack<S, W>
+impl<S, W> LinearPrefix<S, W>
 where
     S: Clone + Eq + Hash,
     W: Weight,
@@ -40,25 +38,35 @@ where
         })
     }
 
-    /// Return the visible top value.
+    /// Return the number of values in the accessible linear prefix.
     #[must_use]
-    pub fn top(&self) -> Option<&S> {
-        self.get_from_top(0)
+    pub fn len(&self) -> usize {
+        let current = self.values.as_ref().map_or(0, Segment::len);
+        self.pending
+            .len()
+            .saturating_add(current)
+            .saturating_add(segment_chain_len(&self.next))
+    }
+
+    /// Return whether the accessible prefix is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// Return a visible value by depth from the top.
     #[must_use]
-    pub fn get_from_top(&self, mut depth: usize) -> Option<&S> {
-        if depth < self.pending.len() {
-            return self.pending.iter().rev().nth(depth);
+    pub fn get(&self, mut depth_from_top: usize) -> Option<&S> {
+        if depth_from_top < self.pending.len() {
+            return self.pending.iter().rev().nth(depth_from_top);
         }
-        depth -= self.pending.len();
+        depth_from_top -= self.pending.len();
 
         if let Some(values) = &self.values {
-            if depth < values.len() {
-                return values.get(depth);
+            if depth_from_top < values.len() {
+                return values.get(depth_from_top);
             }
-            depth -= values.len();
+            depth_from_top -= values.len();
         }
 
         let mut next = &self.next;
@@ -68,10 +76,10 @@ where
                     values,
                     next: following,
                 } => {
-                    if depth < values.len() {
-                        return values.get(depth);
+                    if depth_from_top < values.len() {
+                        return values.get(depth_from_top);
                     }
-                    depth -= values.len();
+                    depth_from_top -= values.len();
                     next = following;
                 }
                 UKind::Branch { .. } => return None,
@@ -79,53 +87,20 @@ where
         }
     }
 
-    /// Number of values available in the visible linear prefix.
-    #[must_use]
-    pub fn prefix_len(&self) -> usize {
-        let current = self.values.as_ref().map_or(0, Segment::len);
-        self.pending
-            .len()
-            .saturating_add(current)
-            .saturating_add(segment_chain_len(&self.next))
-    }
-
     /// Return whether the hidden floor is exactly the empty stack.
     #[must_use]
-    pub fn is_complete(&self) -> bool {
+    pub fn floor_is_empty(&self) -> bool {
         let floor = segment_chain_floor(&self.next);
         floor.paths == 1 && u_has_empty(floor)
     }
 
-    /// Return the shared weight of all alternatives under this prefix.
-    #[must_use]
-    pub fn weight(&self) -> &W {
-        self.weight.as_ref()
-    }
-
-    /// Push one value onto the visible prefix.
+    /// Push one value onto the prefix.
     pub fn push(&mut self, value: S) {
         self.pending.push(value);
     }
 
-    /// Replace the visible top value, returning false when the prefix is empty.
-    pub fn replace_top(&mut self, value: S) -> bool {
-        if let Some(top) = self.pending.last_mut() {
-            *top = value;
-            return true;
-        }
-        if self.values.is_none() {
-            return false;
-        }
-        let remaining = self.pop_prefix(1);
-        debug_assert_eq!(remaining, 0);
-        self.pending.push(value);
-        true
-    }
-
-    /// Pop from the visible prefix and return the unconsumed pop count.
-    ///
-    /// A nonzero result means the requested pop reached the hidden floor.
-    pub fn pop_prefix(&mut self, mut count: usize) -> usize {
+    /// Pop values from the prefix and return the number that reached its floor.
+    pub fn popn(&mut self, mut count: usize) -> usize {
         while count > 0 && !self.pending.is_empty() {
             self.pending.pop();
             count -= 1;
@@ -137,8 +112,7 @@ where
             };
             if count < values.len() {
                 self.values = values.drop_front(count);
-                count = 0;
-                break;
+                return 0;
             }
             count -= values.len();
             match &self.next.kind {
@@ -155,7 +129,7 @@ where
         count
     }
 
-    /// Convert the fast-path view back into a general weighted GSS.
+    /// Convert the view back into a weighted GSS.
     #[must_use]
     pub fn into_gss(self) -> WeightedGss<S, W> {
         let mut stacks = match self.values {
@@ -171,31 +145,6 @@ where
         WeightedGss {
             root: w_shared(self.weight, stacks),
         }
-    }
-
-    /// Apply nondeterministic effects while sharing the unchanged hidden floor.
-    #[must_use]
-    pub fn apply_effects<I, P>(self, effects: I) -> WeightedGss<S, W>
-    where
-        I: IntoIterator<Item = StackEffect<P>>,
-        P: AsRef<[S]>,
-    {
-        let effects: Vec<_> = effects.into_iter().collect();
-        if effects
-            .iter()
-            .any(|effect| effect.pop_count() > self.prefix_len())
-        {
-            return self.into_gss().apply_effects(effects);
-        }
-        WeightedGss::merge_all(effects.into_iter().map(|effect| {
-            let mut branch = self.clone();
-            let remaining = branch.pop_prefix(effect.pop_count());
-            debug_assert_eq!(remaining, 0);
-            for value in effect.pushed().as_ref() {
-                branch.push(value.clone());
-            }
-            branch.into_gss()
-        }))
     }
 }
 

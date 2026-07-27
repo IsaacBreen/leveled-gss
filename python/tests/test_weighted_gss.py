@@ -77,7 +77,7 @@ class WeightedGSSTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             WeightedGSS().joined_weight()
         self.assertEqual(original.tops(), {2, 3})
-        self.assertEqual(original.pop_n(1).tops(), {1})
+        self.assertEqual(original.popn(1).tops(), {1})
         with self.assertRaises(ValueError):
             original.top()
         with self.assertRaises(ValueError):
@@ -165,7 +165,7 @@ class WeightedGSSTest(unittest.TestCase):
                         for stack, weight in model.items()
                         if len(stack) >= count
                     )
-                    gss = gss.pop_n(count)
+                    gss = gss.popn(count)
                 elif operation == 2:
                     value = rng.randrange(6)
                     model = {
@@ -211,7 +211,50 @@ class WeightedGSSTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             WeightedGSS.from_unweighted([[[1, 2]]])
         with self.assertRaises(ValueError):
-            WeightedGSS.from_unweighted([[1]]).pop_n(-1)
+            WeightedGSS.from_unweighted([[1]]).popn(-1)
+
+    def test_private_structure_dump_preserves_graph_identity_and_variants(self):
+        gss = WeightedGSS.from_stacks(
+            [
+                ([0, 4, 9, 12, 18, 31], Bits(1)),
+                ([0, 4, 9, 12, 27, 31], Bits(1)),
+                ([0, 4, 13, 27, 31], Bits(2)),
+            ]
+        )
+
+        dump = gss._dump_structure()
+        node_ids = {node["id"] for node in dump["nodes"]}
+        variants = {(node["enum"], node["variant"]) for node in dump["nodes"]}
+
+        self.assertEqual(dump["schema"], "weighted-gss/internal-structure/v1")
+        self.assertIn(dump["root"], node_ids)
+        self.assertTrue(all(edge["from"] in node_ids for edge in dump["edges"]))
+        self.assertTrue(all(edge["to"] in node_ids for edge in dump["edges"]))
+        self.assertIn(("WKind", "Branch"), variants)
+        self.assertIn(("WKind", "Shared"), variants)
+        self.assertIn(("UKind", "Segment"), variants)
+        self.assertTrue(dump["weights"])
+
+        terminal_nodes = [
+            node
+            for node in dump["nodes"]
+            if node["enum"] == "UKind"
+            and node["variant"] == "Branch"
+            and node.get("empty") is True
+        ]
+        self.assertEqual(len(terminal_nodes), 1)
+        terminal_id = terminal_nodes[0]["id"]
+        self.assertEqual(
+            sum(
+                edge["kind"] == "segment_next" and edge["to"] == terminal_id
+                for edge in dump["edges"]
+            ),
+            3,
+        )
+
+        encoded = json.loads(gss._dump_json())
+        self.assertEqual(encoded["schema"], dump["schema"])
+        self.assertEqual(encoded["root"], dump["root"])
 
     def test_private_structure_dump_preserves_graph_identity_and_variants(self):
         gss = WeightedGSS.from_stacks(

@@ -111,6 +111,12 @@ impl Clone for PyWeight {
     }
 }
 
+impl PartialEq for PyWeight {
+    fn eq(&self, other: &Self) -> bool {
+        Python::attach(|py| self.0.bind(py).is(other.0.bind(py)))
+    }
+}
+
 impl Weight for PyWeight {
     fn join(&self, other: &Self) -> Self {
         Python::attach(|py| {
@@ -128,10 +134,6 @@ impl Weight for PyWeight {
                 }
             }
         })
-    }
-
-    fn equivalent(&self, other: &Self) -> bool {
-        Python::attach(|py| self.0.bind(py).is(other.0.bind(py)))
     }
 }
 
@@ -471,11 +473,11 @@ impl PyWeightedGss {
     }
 
     /// Pop ``count`` values, discarding alternatives that underflow.
-    fn pop_n(&self, count: isize) -> PyResult<Self> {
+    fn popn(&self, count: isize) -> PyResult<Self> {
         let count = usize::try_from(count)
             .map_err(|_| PyValueError::new_err("count must be non-negative"))?;
         Ok(Self {
-            inner: run_callbacks(|| self.inner.pop_n(count))?,
+            inner: run_callbacks(|| self.inner.popn(count))?,
         })
     }
 
@@ -529,16 +531,11 @@ impl PyWeightedGss {
 
     /// Return ``(top, remainder)`` pairs for every non-empty top branch.
     fn pop_branches(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let branches = run_callbacks(|| self.inner.pop_branches().collect::<Vec<_>>())?;
+        let branches = run_callbacks(|| self.inner.pop_branches())?;
         let result = PyList::empty(py);
-        for branch in branches {
-            let remainder = Py::new(
-                py,
-                Self {
-                    inner: branch.remainder,
-                },
-            )?;
-            let pair = PyTuple::new(py, [branch.top.object, remainder.into_any()])?;
+        for (top, remainder) in branches {
+            let remainder = Py::new(py, Self { inner: remainder })?;
+            let pair = PyTuple::new(py, [top.object, remainder.into_any()])?;
             result.append(pair)?;
         }
         Ok(result.into_any().unbind())
@@ -612,7 +609,7 @@ impl PyWeightedGss {
     }
 
     fn __repr__(&self) -> String {
-        let paths = self.inner.paths().count_at_most(17);
+        let paths = self.inner.path_count_at_most(17);
         if paths <= 16 {
             format!(
                 "WeightedGSS(paths={paths}, max_depth={})",

@@ -2,29 +2,24 @@
 
 All notable changes to this project are documented here. The project follows semantic versioning.
 
-## [Unreleased]
-
-- Preserve the shared unweighted stack DAG during path-weight map and filter-map operations instead of rebuilding it.
-- Join different weights directly when they refer to the same immutable stack DAG, preserving the factored representation.
-- Add allocation-free single-path extraction into an inline `SmallVec` and keep bounded top-first traversal inline for common stack depths.
-
 ## [0.2.0] - Unreleased
 
-- Redesign the crate from first principles around weighted stack alternatives rather than exposing GLRMask's internal leveled representation.
-- Add a small semantic API for construction, merging, stack operations, top partitioning, stack effects, and bounded canonical materialisation.
-- Add an explicit path-local API for weight transformations and structural traversal.
-- Add a mutable `VirtualStack` fast path for linear top prefixes over arbitrary hidden floors.
-- Add exact stack-language interning for fixpoint visited sets.
-- Validate the public API by compiling GLRMask solely through a compatibility adapter and passing its complete serial Rust library suite.
-- Rebuild the Python 3.8+ ABI3 binding around the semantic API, with typed stubs and normal propagation of Python callback exceptions.
-- Remove the Python requirement that weights be hashable.
-- Keep synthetic merge-frontier nodes alive for the duration of pointer-keyed memoisation, preventing allocator address reuse from corrupting stack languages.
-- Test the declared Rust 1.85 minimum in CI and avoid newer-only let-chain syntax.
-- Replace address-derived public representation keys with lazily assigned, process-unique IDs that cannot collide after allocator reuse.
+- Redesign the crate around a small semantic abstraction: weighted stack alternatives, merging, ordinary stack operations, top selection, and bounded canonical materialisation.
+- Keep the graph representation private and the default API independent of parser-engine machinery.
+- Export only `Weight`, `WeightedGss`, the unweighted `Gss` alias, and `PathLimitExceeded` by default.
+- Add persistent constructors for independently weighted stacks and homogeneous alternatives that share one weight.
+- Use ordinary equality to factor equal weights over shared stack languages.
+- Preserve immutable stack DAG sharing and share terminal stack suffixes across constructed alternatives.
+- Rebuild the Python 3.8+ ABI3 binding around semantic stack operations, typed stubs, unhashable weights, and normal propagation of Python callback exceptions.
+- Add core `weights`, `map_weights`, and `filter_map_weights` operations over documented factored weight regions.
+- Add an opt-in `engine` module containing only bounded concrete-stack inspection, a linear-prefix view, and exact stack-language keys.
+- Remove representation identity, structural profiling, raw graph traversal, batched stack operations, and parser-specific conveniences from the supported Rust API.
+- Validate core semantics against an explicit stack-to-weight map and test the declared Rust 1.85 minimum in CI.
+- Validate the opt-in engine surface through a GLRMask adapter while keeping GLRMask-specific conveniences in GLRMask.
 
 ## [0.1.0] - 2026-07-24
 
 - Publish the initial standalone extraction of GLRMask's leveled GSS implementation.
 - Add Rust and typed Python APIs, cross-platform wheels, and source distributions.
 
-Version 0.2.0 replaces this extracted API with the from-scratch public abstraction described above.
+Version 0.2.0 replaces the extracted API with the smaller abstraction described above.

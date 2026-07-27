@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use weighted_gss::{Gss, StackEffect, Weight, WeightedGss};
+use weighted_gss::{Gss, Weight, WeightedGss};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Bits(u32);
@@ -11,7 +11,7 @@ impl Weight for Bits {
 }
 
 #[test]
-fn public_api_reads_like_stack_operations() {
+fn public_api_reads_like_weighted_stack_operations() {
     let left = WeightedGss::from_stack([0_u8, 1, 2], Bits(1));
     let right = WeightedGss::from_stack([0_u8, 1, 3], Bits(2));
     let stacks = left.merge(&right);
@@ -21,19 +21,16 @@ fn public_api_reads_like_stack_operations() {
         BTreeSet::from([2, 3])
     );
     assert_eq!(stacks.top(), None);
+    assert!(stacks.retain_empty().is_empty());
+    assert_eq!(stacks.weights().count(), 2);
 
-    let branch = stacks.pop_top(&2);
-    assert_eq!(branch.top(), Some(1));
-    assert_eq!(branch.to_stacks(8).unwrap(), vec![(vec![0, 1], Bits(1))]);
+    let remapped = stacks.map_weights(|weight| Bits(weight.0 << 1));
+    let filtered = remapped.filter_map_weights(|weight| (weight.0 != 4).then_some(*weight));
+    assert_eq!(filtered.joined_weight(), Some(Bits(2)));
 
-    let shifted =
-        stacks.apply_top_effects([(2, StackEffect::new(1, [8])), (3, StackEffect::new(0, [9]))]);
-    let mut materialized = shifted.to_stacks(8).unwrap();
-    materialized.sort_by(|a, b| a.0.cmp(&b.0));
-    assert_eq!(
-        materialized,
-        vec![(vec![0, 1, 3, 9], Bits(2)), (vec![0, 1, 8], Bits(1)),]
-    );
+    let branch = stacks.pop_top(&2).push(8);
+    assert_eq!(branch.top(), Some(8));
+    assert_eq!(branch.to_stacks(8).unwrap(), vec![(vec![0, 1, 8], Bits(1))]);
 }
 
 #[test]

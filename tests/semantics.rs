@@ -1,6 +1,6 @@
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::collections::{BTreeMap, BTreeSet};
-use weighted_gss::{StackEffect, Weight, WeightedGss};
+use weighted_gss::{Weight, WeightedGss};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Bits(u64);
@@ -59,33 +59,6 @@ fn retain_top_model(model: &Model, top: u8) -> Model {
     )
 }
 
-fn retain_empty_model(model: &Model) -> Model {
-    canonical(
-        model
-            .iter()
-            .filter(|(stack, _)| stack.is_empty())
-            .map(|(stack, weight)| (stack.clone(), *weight)),
-    )
-}
-
-fn retain_depth_model(model: &Model, depth: usize, parity: u8) -> Model {
-    canonical(model.iter().filter_map(|(stack, weight)| {
-        let index = stack.len().checked_sub(depth + 1)?;
-        (stack[index] % 2 == parity).then(|| (stack.clone(), *weight))
-    }))
-}
-
-fn effect_model(model: &Model, pop: usize, push: &[u8]) -> Model {
-    canonical(model.iter().filter_map(|(stack, weight)| {
-        if stack.len() < pop {
-            return None;
-        }
-        let mut next = stack[..stack.len() - pop].to_vec();
-        next.extend_from_slice(push);
-        Some((next, *weight))
-    }))
-}
-
 fn assert_matches(gss: &WeightedGss<u8, Bits>, model: &Model, context: &str) {
     assert_eq!(materialize(gss), *model, "semantic mismatch: {context}");
     assert_eq!(
@@ -122,72 +95,89 @@ fn assert_matches(gss: &WeightedGss<u8, Bits>, model: &Model, context: &str) {
 #[test]
 fn merge_joins_weights_when_stack_keys_coincide() {
     let gss = WeightedGss::from_stacks([([1_u8, 2], Bits(1)), ([1_u8, 2], Bits(4))]);
-
-    assert_eq!(gss.paths().to_vec(4).unwrap(), vec![(vec![1, 2], Bits(5))]);
-    assert_eq!(gss.paths().count_at_most(10), 1);
     assert_eq!(gss.to_stacks(4).unwrap(), vec![(vec![1, 2], Bits(5))]);
 }
 
 #[test]
-fn path_local_weight_transforms_preserve_stack_correlation() {
+fn weight_operations_preserve_stack_correlation() {
     let gss = WeightedGss::from_stacks([
-        (vec![1_u8, 2], Bits(1)),
-        (vec![1_u8, 3], Bits(4)),
-        (vec![9_u8], Bits(8)),
+        (vec![0_u8, 1], Bits(1)),
+        (vec![0_u8, 2], Bits(2)),
+        (vec![9_u8], Bits(4)),
     ]);
-    let mapped = gss
-        .paths()
-        .filter_map_weights(|weight| (weight.0 != 4).then_some(Bits(weight.0 << 1)));
-    let mut raw = mapped.paths().to_vec(8).unwrap();
-    raw.sort_by(|a, b| a.0.cmp(&b.0));
-    assert_eq!(raw, vec![(vec![1, 2], Bits(2)), (vec![9], Bits(16))]);
-}
+    assert_eq!(gss.weights().count(), 3);
 
-#[test]
-fn virtual_stack_exposes_linear_prefix_over_hidden_floor() {
-    let base = WeightedGss::from_stack(Vec::<u8>::new(), Bits(1)).apply_effects([
-        StackEffect::new(0, vec![0_u8, 1]),
-        StackEffect::new(0, vec![9_u8, 1]),
-    ]);
-    let pushed = base.push(7).push(8);
-    let mut virtual_stack = pushed.try_virtual_stack().expect("linear prefix");
-    assert_eq!(virtual_stack.top(), Some(&8));
-    assert_eq!(virtual_stack.get_from_top(1), Some(&7));
-    assert_eq!(virtual_stack.prefix_len(), 3); // 8, 7, and shared 1
-    assert!(!virtual_stack.is_complete());
-    assert_eq!(virtual_stack.pop_prefix(2), 0);
-    assert_eq!(virtual_stack.top(), Some(&1));
-    assert_eq!(virtual_stack.pop_prefix(2), 1); // one pop reaches the hidden floor
-    let remainder = virtual_stack.into_gss();
+    let mapped = gss.map_weights(|weight| Bits(weight.0 << 1));
     assert_eq!(
-        materialize(&remainder),
-        canonical([(vec![0], Bits(1)), (vec![9], Bits(1))])
+        materialize(&mapped),
+        canonical([
+            (vec![0, 1], Bits(2)),
+            (vec![0, 2], Bits(4)),
+            (vec![9], Bits(8)),
+        ])
+    );
+
+    let filtered = gss.filter_map_weights(|weight| (weight.0 != 2).then_some(Bits(weight.0 << 1)));
+    assert_eq!(
+        materialize(&filtered),
+        canonical([(vec![0, 1], Bits(2)), (vec![9], Bits(8))])
     );
 }
 
 #[test]
-fn top_branching_and_depth_filters_are_extensional() {
+fn weight_iteration_exposes_factored_regions_not_stacks() {
+    let homogeneous = WeightedGss::from_stacks_with_weight([vec![0_u8, 1], vec![0_u8, 2]], Bits(8));
+    let separately_factored =
+        WeightedGss::from_stacks([(vec![0_u8, 1], Bits(1)), (vec![0_u8, 2], Bits(2))])
+            .map_weights(|_| Bits(8));
+
+    assert_eq!(materialize(&homogeneous), materialize(&separately_factored));
+    assert_eq!(
+        homogeneous.weights().copied().collect::<Vec<_>>(),
+        [Bits(8)]
+    );
+    assert_eq!(separately_factored.weights().count(), 2);
+}
+
+#[test]
+fn top_selection_and_empty_stack_are_distinct() {
     let gss = WeightedGss::from_stacks([
         (vec![0_u8, 1, 2], Bits(1)),
         (vec![0_u8, 3, 2], Bits(2)),
         (vec![9_u8, 4], Bits(4)),
         (Vec::<u8>::new(), Bits(8)),
     ]);
+
     assert_eq!(gss.top(), None);
-    assert_eq!(gss.pop_branches().len(), 2);
+    assert!(gss.has_empty_stack());
     assert_eq!(
         materialize(&gss.pop_top(&2)),
         canonical([(vec![0, 1], Bits(1)), (vec![0, 3], Bits(2))])
     );
+    assert!(gss.retain_top(&7).is_empty());
+}
+
+#[test]
+fn popn_discards_underflowing_alternatives() {
+    let gss = WeightedGss::from_stacks([
+        (vec![1_u8], Bits(1)),
+        (vec![2_u8, 3], Bits(2)),
+        (Vec::<u8>::new(), Bits(4)),
+    ]);
     assert_eq!(
-        materialize(&gss.retain_at_depth(1, |value| *value % 2 == 1)),
-        canonical([
-            (vec![0, 1, 2], Bits(1)),
-            (vec![0, 3, 2], Bits(2)),
-            (vec![9, 4], Bits(4)),
-        ])
+        materialize(&gss.popn(1)),
+        canonical([(Vec::new(), Bits(1)), (vec![2], Bits(2))])
     );
-    assert_eq!(gss.empty_weight(), Some(Bits(8)));
+    assert!(gss.popn(3).is_empty());
+}
+
+#[test]
+fn homogeneous_constructor_has_expected_meaning() {
+    let gss = WeightedGss::from_stacks_with_weight([vec![0_u8, 1, 7], vec![9_u8, 1, 7]], Bits(1));
+    assert_eq!(
+        materialize(&gss),
+        canonical([(vec![0, 1, 7], Bits(1)), (vec![9, 1, 7], Bits(1))])
+    );
 }
 
 #[test]
@@ -198,13 +188,13 @@ fn randomized_core_operations_match_extensional_model() {
         let mut gss = WeightedGss::new();
 
         for step in 0..150 {
-            match rng.gen_range(0..9) {
+            match rng.gen_range(0..7) {
                 0 => {
                     let len = rng.gen_range(0..=7);
                     let stack: Vec<u8> = (0..len).map(|_| rng.gen_range(0..=5)).collect();
                     let weight = Bits(1 << rng.gen_range(0..16));
                     model = canonical(model.into_iter().chain([(stack.clone(), weight)]));
-                    gss = gss.with_stack(stack, weight);
+                    gss = gss.merge(&WeightedGss::from_stack(stack, weight));
                 }
                 1 => {
                     let value = rng.gen_range(0..=5);
@@ -214,7 +204,7 @@ fn randomized_core_operations_match_extensional_model() {
                 2 => {
                     let count = rng.gen_range(0..=5);
                     model = pop_model(&model, count);
-                    gss = gss.pop_n(count);
+                    gss = gss.popn(count);
                 }
                 3 => {
                     let top = rng.gen_range(0..=5);
@@ -222,23 +212,17 @@ fn randomized_core_operations_match_extensional_model() {
                     gss = gss.retain_top(&top);
                 }
                 4 => {
-                    model = retain_empty_model(&model);
-                    gss = gss.retain_empty();
+                    if let Some(top) = model
+                        .keys()
+                        .filter_map(|stack| stack.last())
+                        .copied()
+                        .next()
+                    {
+                        model = pop_model(&retain_top_model(&model, top), 1);
+                        gss = gss.pop_top(&top);
+                    }
                 }
                 5 => {
-                    let depth = rng.gen_range(0..=4);
-                    let parity = rng.gen_range(0..=1);
-                    model = retain_depth_model(&model, depth, parity);
-                    gss = gss.retain_at_depth(depth, |value| *value % 2 == parity);
-                }
-                6 => {
-                    let count = rng.gen_range(0..=5);
-                    let push_len = rng.gen_range(0..=3);
-                    let push: Vec<u8> = (0..push_len).map(|_| rng.gen_range(0..=5)).collect();
-                    model = effect_model(&model, count, &push);
-                    gss = gss.apply_effect(StackEffect::new(count, push));
-                }
-                7 => {
                     let other_count = rng.gen_range(0..=8);
                     let mut other = Model::new();
                     for _ in 0..other_count {
@@ -251,10 +235,8 @@ fn randomized_core_operations_match_extensional_model() {
                     gss = gss.merge(&from_model(&other));
                 }
                 _ => {
-                    if let Some(top) = model.keys().filter_map(|s| s.last()).copied().next() {
-                        model = pop_model(&retain_top_model(&model, top), 1);
-                        gss = gss.pop_top(&top);
-                    }
+                    model = pop_model(&model, 1);
+                    gss = gss.pop();
                 }
             }
             assert_matches(&gss, &model, &format!("seed={seed} step={step}"));
@@ -263,67 +245,13 @@ fn randomized_core_operations_match_extensional_model() {
 }
 
 #[test]
-fn stack_language_interner_ignores_weights_and_layout() {
-    use weighted_gss::StackLanguageInterner;
-
-    let canonical =
-        WeightedGss::from_stacks([(vec![0_u8, 1, 2], Bits(1)), (vec![0_u8, 1, 3], Bits(2))]);
-    let reversed = WeightedGss::merge_all([
-        WeightedGss::from_stack([0_u8, 1, 3], Bits(64)),
-        WeightedGss::from_stack([0_u8, 1, 2], Bits(32)),
-    ]);
-    let different = WeightedGss::from_stack([0_u8, 1, 4], Bits(1));
-
-    let mut interner = StackLanguageInterner::new();
-    assert_eq!(interner.key(&canonical), interner.key(&reversed));
-    assert_ne!(interner.key(&canonical), interner.key(&different));
-}
-
-#[test]
-fn stack_language_interner_stays_compact_for_shared_binary_dag() {
-    use weighted_gss::StackLanguageInterner;
-
+fn materialization_limit_is_never_silent() {
     let mut gss = WeightedGss::from_stack(Vec::<u8>::new(), Bits(1));
-    for level in 0..18_u8 {
-        gss = WeightedGss::merge_all([gss.push(level * 2), gss.push(level * 2 + 1)]);
+    for level in 0..12_u8 {
+        gss = gss.push(level * 2).merge(&gss.push(level * 2 + 1));
     }
-    assert_eq!(gss.paths().count_at_most(1 << 19), 1 << 18);
-    let mut interner = StackLanguageInterner::new();
-    assert_ne!(interner.key(&gss).as_u32(), 0);
-    assert!(interner.node_count() < 100);
-}
-
-#[test]
-fn homogeneous_constructor_preserves_common_linear_prefix() {
-    let gss = WeightedGss::from_stacks_with_weight([vec![0_u8, 1, 7], vec![9_u8, 1, 7]], Bits(1));
-    let virtual_stack = gss.try_virtual_stack().expect("common linear prefix");
-    assert_eq!(virtual_stack.top(), Some(&7));
-    assert_eq!(virtual_stack.get_from_top(1), Some(&1));
-    assert_eq!(virtual_stack.prefix_len(), 2);
-    assert!(!virtual_stack.is_complete());
-}
-
-#[test]
-fn bounded_path_visit_emits_limit_then_reports_overflow() {
-    let gss = WeightedGss::from_stacks_with_weight([vec![0_u8], vec![1_u8], vec![2_u8]], Bits(1));
-    let mut visited = Vec::new();
-    let result = gss
-        .paths()
-        .for_each_top_first(2, |stack, _| visited.push(stack.to_vec()));
-    assert_eq!(visited.len(), 2);
-    assert_eq!(result.unwrap_err().limit, 2);
-}
-
-#[test]
-fn stack_language_interner_is_safe_across_dropped_frontiers() {
-    use weighted_gss::StackLanguageInterner;
-
-    let mut interner = StackLanguageInterner::new();
-    let mut ids = std::collections::BTreeSet::new();
-    for symbol in 0_u16..1_000 {
-        let frontier = WeightedGss::from_stack([symbol], Bits(1));
-        assert!(ids.insert(interner.key(&frontier).as_u32()));
-    }
+    assert_eq!(gss.to_stacks(100).unwrap_err().limit, 100);
+    assert_eq!(gss.to_stacks(1 << 12).unwrap().len(), 1 << 12);
 }
 
 #[test]
@@ -342,26 +270,5 @@ fn merge_memo_does_not_alias_dropped_intermediate_nodes() {
     for _ in 0..1_000 {
         let gss = WeightedGss::from_stacks(entries.clone());
         assert_eq!(materialize(&gss), expected);
-    }
-}
-
-#[test]
-fn representation_ids_are_stable_and_never_reused() {
-    use std::collections::HashSet;
-
-    let original = WeightedGss::from_stack([1_u8, 2], Bits(1));
-    let cloned = original.clone();
-    assert_eq!(original.representation_id(), cloned.representation_id());
-
-    let independently_built = WeightedGss::from_stack([1_u8, 2], Bits(1));
-    assert_ne!(
-        original.representation_id(),
-        independently_built.representation_id()
-    );
-
-    let mut seen = HashSet::new();
-    for value in 0_u32..10_000 {
-        let gss = WeightedGss::from_stack(value.to_le_bytes(), Bits(1));
-        assert!(seen.insert(gss.representation_id()));
     }
 }
