@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. The project follows semantic versioning.
 
+## [0.2.2] - 2026-07-28
+
+- Redesign the benchmark suite around like-for-like public operation traces, separating structural growth from conversion of already materialised stacks.
+- Exclude benchmark input preparation and output destruction from constructor timings.
+- Strengthen the explicit map, explicit set, and weight-partitioned baselines with capacity reservation and clone-the-larger merge strategies.
+- Split owned materialisation, borrowed visitation, limit rejection, and adversarial stress workloads into explicitly named groups.
+- Add extensional tests proving that structural benchmark builders execute equivalent weighted and unweighted workloads.
+- Replace the bounded visitor's recursive intermediate-language materialisation with the existing direct bounded materialiser, substantially reducing broad-graph visitation overhead.
+- Correct the README benchmark interpretation and add a dated benchmark-methodology audit.
+
 ## [0.2.1] - 2026-07-28
 
 - Remove the `engine` feature and `weighted_gss::engine` module.

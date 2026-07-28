@@ -48,6 +48,8 @@ After every operation it checks:
 
 The suite also tests deliberately colliding symbol hashes and several valid join algebras. A failing random case is automatically reduced to a smaller operation sequence by `proptest`.
 
+The private benchmark baselines are also tested extensionally. Structural binary-language builders apply the same push/merge trace to `WeightedGss`, an explicit weighted map, `Gss`, and an explicit unweighted set, then compare complete canonical results.
+
 Run only this layer with:
 
 ```bash
