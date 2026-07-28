@@ -91,6 +91,18 @@ The core methods are:
 
 Neither operation exposes graph nodes, structural paths, or canonical stack-language IDs.
 
+## Validation and benchmarks
+
+Correctness is checked against an explicit stack-to-weight map through deterministic tests, shrinkable property-based operation sequences, and an oracle-backed `cargo-fuzz` target. The benchmark suite compares the compact representation with an explicit map, an explicit unweighted stack set, and a benchmark-only `weight -> stack set` ablation.
+
+```bash
+cargo test --all-targets
+cargo bench
+cargo +nightly fuzz run operation_sequences
+```
+
+See [Correctness validation](docs/validation.md) and [Benchmarks](docs/benchmarks.md).
+
 ## Python
 
 ```python

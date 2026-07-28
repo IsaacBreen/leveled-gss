@@ -4,9 +4,148 @@ use crate::nodes::*;
 use crate::segment::Segment;
 use crate::stack_visit::{StackLimitExceeded, collect_stacks_top_first};
 use crate::weight_regions;
+use rustc_hash::FxHashMap;
+use smallvec::SmallVec;
 use std::fmt;
 use std::hash::Hash;
 use std::sync::Arc;
+
+enum StackTrieChildren<S> {
+    Small(SmallVec<[(S, usize); 2]>),
+    Large(FxHashMap<S, usize>),
+}
+
+impl<S> Default for StackTrieChildren<S> {
+    fn default() -> Self {
+        Self::Small(SmallVec::new())
+    }
+}
+
+impl<S> StackTrieChildren<S>
+where
+    S: Eq + Hash,
+{
+    fn get(&self, symbol: &S) -> Option<usize> {
+        match self {
+            Self::Small(children) => children
+                .iter()
+                .find_map(|(candidate, index)| (candidate == symbol).then_some(*index)),
+            Self::Large(children) => children.get(symbol).copied(),
+        }
+    }
+
+    fn insert(&mut self, symbol: S, index: usize) {
+        match self {
+            Self::Small(children) if children.len() < 8 => children.push((symbol, index)),
+            Self::Small(children) => {
+                let mut large = FxHashMap::default();
+                large.extend(children.drain(..));
+                large.insert(symbol, index);
+                *self = Self::Large(large);
+            }
+            Self::Large(children) => {
+                children.insert(symbol, index);
+            }
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::Small(children) => children.len(),
+            Self::Large(children) => children.len(),
+        }
+    }
+}
+
+struct StackTrieNode<S> {
+    parent: Option<usize>,
+    symbol: Option<S>,
+    children: StackTrieChildren<S>,
+    terminal: bool,
+}
+
+fn shared_stack_refs<S>(stacks: Vec<Vec<S>>) -> Vec<URef<S>>
+where
+    S: Clone + Eq + Hash,
+{
+    let mut nodes = vec![StackTrieNode {
+        parent: None,
+        symbol: None,
+        children: StackTrieChildren::default(),
+        terminal: false,
+    }];
+    let mut terminals = Vec::with_capacity(stacks.len());
+
+    for stack in stacks {
+        let mut current = 0usize;
+        for symbol in stack {
+            let next = if let Some(existing) = nodes[current].children.get(&symbol) {
+                existing
+            } else {
+                let next = nodes.len();
+                nodes.push(StackTrieNode {
+                    parent: Some(current),
+                    symbol: Some(symbol.clone()),
+                    children: StackTrieChildren::default(),
+                    terminal: false,
+                });
+                nodes[current].children.insert(symbol, next);
+                next
+            };
+            current = next;
+        }
+        nodes[current].terminal = true;
+        terminals.push(current);
+    }
+
+    let significant: Vec<bool> = nodes
+        .iter()
+        .enumerate()
+        .map(|(index, node)| index == 0 || node.terminal || node.children.len() != 1)
+        .collect();
+    let mut refs: Vec<Option<URef<S>>> = (0..nodes.len()).map(|_| None).collect();
+    refs[0] = Some(u_end());
+
+    for index in 1..nodes.len() {
+        if !significant[index] {
+            continue;
+        }
+
+        let mut values = Vec::new();
+        let mut current = index;
+        loop {
+            values.push(
+                nodes[current]
+                    .symbol
+                    .as_ref()
+                    .expect("non-root trie nodes have a symbol")
+                    .clone(),
+            );
+            let parent = nodes[current]
+                .parent
+                .expect("non-root trie nodes have a parent");
+            if significant[parent] {
+                let floor = refs[parent]
+                    .as_ref()
+                    .expect("significant ancestors are constructed first")
+                    .clone();
+                refs[index] = Some(u_segment(Segment::from_top_first(values), floor));
+                break;
+            }
+            current = parent;
+        }
+    }
+
+    terminals
+        .into_iter()
+        .map(|terminal| {
+            refs[terminal]
+                .as_ref()
+                .expect("terminal trie nodes are significant")
+                .clone()
+        })
+        .collect()
+}
 
 /// An unweighted graph-structured stack.
 pub type Gss<S> = WeightedGss<S, ()>;
@@ -86,18 +225,11 @@ where
         I: IntoIterator<Item = T>,
         T: IntoIterator<Item = S>,
     {
-        let end = u_end();
-        let stacks = u_merge_all(stacks.into_iter().map(|stack| {
-            let values: Vec<S> = stack.into_iter().collect();
-            if values.is_empty() {
-                end.clone()
-            } else {
-                u_segment(
-                    Segment::from_top_first(values.into_iter().rev().collect()),
-                    end.clone(),
-                )
-            }
-        }));
+        let concrete: Vec<Vec<S>> = stacks
+            .into_iter()
+            .map(|stack| stack.into_iter().collect())
+            .collect();
+        let stacks = u_merge_all(shared_stack_refs(concrete));
         Self {
             root: w_shared(Arc::new(weight), stacks),
         }
@@ -110,12 +242,19 @@ where
         I: IntoIterator<Item = (T, W)>,
         T: IntoIterator<Item = S>,
     {
-        let end = u_end();
-        Self::merge_all(
-            entries
-                .into_iter()
-                .map(|(stack, weight)| Self::from_stack_with_end(stack, weight, &end)),
-        )
+        let (stacks, weights): (Vec<Vec<S>>, Vec<W>) = entries
+            .into_iter()
+            .map(|(stack, weight)| (stack.into_iter().collect(), weight))
+            .unzip();
+        let stack_refs = shared_stack_refs(stacks);
+        Self {
+            root: w_merge_all(
+                stack_refs
+                    .into_iter()
+                    .zip(weights)
+                    .map(|(stack, weight)| w_shared(Arc::new(weight), stack)),
+            ),
+        }
     }
 
     #[cfg(feature = "python")]
@@ -131,6 +270,7 @@ where
         }
     }
 
+    #[cfg(feature = "python")]
     pub(crate) fn merge_all(values: impl IntoIterator<Item = Self>) -> Self {
         Self {
             root: w_merge_all(values.into_iter().map(|value| value.root)),
@@ -304,5 +444,113 @@ impl<S, W> fmt::Debug for WeightedGss<S, W> {
             .field("is_empty", &self.is_empty())
             .field("max_depth", &self.root.max_depth)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct Bits(u8);
+
+    impl Weight for Bits {
+        fn join(&self, other: &Self) -> Self {
+            Self(self.0 | other.0)
+        }
+    }
+
+    #[test]
+    fn batched_construction_shares_common_stack_floors() {
+        let refs = shared_stack_refs(vec![vec![0_u8, 1, 2], vec![0, 1, 3]]);
+        let first_floor = match &refs[0].kind {
+            UKind::Segment { next, .. } => next,
+            UKind::Branch { .. } => panic!("non-empty stack should start with a segment"),
+        };
+        let second_floor = match &refs[1].kind {
+            UKind::Segment { next, .. } => next,
+            UKind::Branch { .. } => panic!("non-empty stack should start with a segment"),
+        };
+        assert!(Arc::ptr_eq(first_floor, second_floor));
+    }
+
+    #[test]
+    fn shared_floors_make_join_heavy_pop_collapse_immediate() {
+        let gss = WeightedGss::from_stacks([
+            (vec![0_u8, 1, 2], Bits(1)),
+            (vec![0_u8, 1, 3], Bits(2)),
+            (vec![0_u8, 1, 4], Bits(4)),
+        ]);
+        let popped = gss.pop();
+        assert_eq!(popped.to_stacks(1).unwrap(), vec![(vec![0, 1], Bits(7))]);
+        assert_eq!(popped.root.paths, 1);
+    }
+
+    #[test]
+    fn deep_weighted_common_top_prefix_is_compact_and_iterative() {
+        let depth = 20_000usize;
+        let mut left = Vec::with_capacity(depth);
+        let mut right = Vec::with_capacity(depth);
+        left.push(0_u32);
+        right.push(1_u32);
+        for value in 1..depth as u32 {
+            left.push(value);
+            right.push(value);
+        }
+
+        let gss = WeightedGss::from_stacks([(left, Bits(1)), (right, Bits(2))]);
+        assert_eq!(gss.max_depth(), depth);
+        assert_eq!(gss.top(), Some((depth - 1) as u32));
+        assert!(matches!(gss.root.kind, WKind::Segment { .. }));
+
+        let popped = gss.popn(depth - 1);
+        let mut stacks = popped.to_stacks(2).unwrap();
+        stacks.sort_by(|left, right| left.0.cmp(&right.0));
+        assert_eq!(stacks, vec![(vec![0], Bits(1)), (vec![1], Bits(2))]);
+    }
+
+    #[test]
+    fn separately_built_deep_weighted_prefixes_merge_iteratively() {
+        let depth = 20_000usize;
+        let make = |bottom: u32, weight: Bits| {
+            let mut stack = Vec::with_capacity(depth);
+            stack.push(bottom);
+            stack.extend(1..depth as u32);
+            WeightedGss::from_stacks([
+                (stack.clone(), weight),
+                (
+                    {
+                        stack[0] = bottom + 10;
+                        stack
+                    },
+                    Bits(weight.0 << 1),
+                ),
+            ])
+        };
+
+        let merged = make(0, Bits(1)).merge(&make(100, Bits(4)));
+        assert_eq!(merged.max_depth(), depth);
+        assert_eq!(merged.top(), Some((depth - 1) as u32));
+        assert_eq!(merged.popn(depth - 1).to_stacks(4).unwrap().len(), 4);
+    }
+
+    #[test]
+    fn shared_stack_refs_handle_empty_duplicate_and_prefix_stacks() {
+        let gss = WeightedGss::from_stacks([
+            (Vec::<u8>::new(), Bits(1)),
+            (vec![0], Bits(2)),
+            (vec![0, 1], Bits(4)),
+            (vec![0, 1], Bits(8)),
+        ]);
+        let mut stacks = gss.to_stacks(3).unwrap();
+        stacks.sort_by(|left, right| left.0.cmp(&right.0));
+        assert_eq!(
+            stacks,
+            vec![
+                (Vec::new(), Bits(1)),
+                (vec![0], Bits(2)),
+                (vec![0, 1], Bits(12)),
+            ]
+        );
     }
 }

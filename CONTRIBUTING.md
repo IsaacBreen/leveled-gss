@@ -43,3 +43,13 @@ Run wheel and sdist installs in clean virtual environments before release.
 - Test semantic operations against an explicit stack-to-weight model.
 - Test any pointer-based memoisation against allocator address reuse.
 - Validate substantial API changes through the GLRMask public-API adapter.
+
+## Correctness and performance changes
+
+Changes to stack semantics or graph algorithms should extend the explicit-model properties in `tests/properties.rs` and, when reachable from arbitrary operation sequences, the oracle-backed fuzz target. Performance-sensitive changes should be checked against an adjacent Criterion baseline on the same machine; see `docs/validation.md` and `docs/benchmarks.md`.
+
+The full local validation command is:
+
+```bash
+./scripts/run-validation.sh
+```

@@ -245,6 +245,32 @@ fn randomized_core_operations_match_extensional_model() {
 }
 
 #[test]
+fn common_top_prefix_preserves_weight_operations_and_selection() {
+    let gss = WeightedGss::from_stacks([
+        (vec![0_u8, 1, 2, 3], Bits(1)),
+        (vec![9_u8, 1, 2, 3], Bits(2)),
+    ]);
+
+    assert_eq!(gss.top(), Some(3));
+    assert_eq!(gss.tops().collect::<BTreeSet<_>>(), BTreeSet::from([3]));
+    assert_eq!(gss.weights().count(), 2);
+    assert_eq!(gss.joined_weight(), Some(Bits(3)));
+    assert_eq!(gss.retain_top(&3).to_stacks(2).unwrap().len(), 2);
+    assert_eq!(gss.pop_top(&3).popn(2).to_stacks(2).unwrap().len(), 2);
+
+    let mapped = gss.map_weights(|weight| Bits(weight.0 << 2));
+    assert_eq!(
+        materialize(&mapped),
+        canonical([(vec![0, 1, 2, 3], Bits(4)), (vec![9, 1, 2, 3], Bits(8))])
+    );
+    let filtered = gss.filter_map_weights(|weight| (weight.0 == 2).then_some(*weight));
+    assert_eq!(
+        materialize(&filtered),
+        canonical([(vec![9, 1, 2, 3], Bits(2))])
+    );
+}
+
+#[test]
 fn materialization_limit_is_never_silent() {
     let mut gss = WeightedGss::from_stack(Vec::<u8>::new(), Bits(1));
     for level in 0..12_u8 {

@@ -287,6 +287,19 @@ impl PyWeightedGss {
                         }
                     }
                 }
+                WKind::Segment { values, next } => {
+                    node_output.set_item("variant", "Segment")?;
+                    let segment_values =
+                        PyList::new(py, values.iter().map(|value| value.object.clone_ref(py)))?;
+                    node_output.set_item("values_top_first", segment_values)?;
+                    let target_id =
+                        enqueue_weighted_node(next, &mut weighted_ids, &mut weighted_queue);
+                    let edge = PyDict::new(py);
+                    edge.set_item("from", format!("w{source_id}"))?;
+                    edge.set_item("to", format!("w{target_id}"))?;
+                    edge.set_item("kind", "segment_next")?;
+                    edges.append(edge)?;
+                }
                 WKind::Shared { weight, stacks } => {
                     node_output.set_item("variant", "Shared")?;
                     node_output.set_item(

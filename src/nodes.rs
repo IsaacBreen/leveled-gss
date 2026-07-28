@@ -32,6 +32,10 @@ pub(crate) enum WKind<S, W> {
         empty: SmallVec<[Arc<W>; 1]>,
         children: WChildren<S, W>,
     },
+    Segment {
+        values: Segment<S>,
+        next: WRef<S, W>,
+    },
     Shared {
         weight: Arc<W>,
         stacks: URef<S>,
@@ -263,6 +267,98 @@ where
     queue.pop_front().expect("non-empty queue")
 }
 
+struct USinglePathCursor<'a, S> {
+    node: &'a URef<S>,
+    segment_index: usize,
+    finished: bool,
+}
+
+impl<'a, S> USinglePathCursor<'a, S> {
+    fn new(node: &'a URef<S>) -> Self {
+        Self {
+            node,
+            segment_index: 0,
+            finished: false,
+        }
+    }
+
+    fn next(&mut self) -> Option<&'a S> {
+        if self.finished {
+            return None;
+        }
+        loop {
+            match &self.node.kind {
+                UKind::Segment { values, next } => {
+                    if let Some(value) = values.get(self.segment_index) {
+                        self.segment_index += 1;
+                        return Some(value);
+                    }
+                    self.node = next;
+                    self.segment_index = 0;
+                }
+                UKind::Branch { empty, children } => {
+                    if *empty {
+                        debug_assert!(children.is_empty());
+                        self.finished = true;
+                        return None;
+                    }
+                    let mut alternatives = children
+                        .iter()
+                        .flat_map(|(top, values)| values.iter().map(move |child| (top, child)));
+                    let (top, child) = alternatives
+                        .next()
+                        .expect("a non-empty single path has one child");
+                    debug_assert!(alternatives.next().is_none());
+                    self.node = child;
+                    self.segment_index = 0;
+                    return Some(top);
+                }
+            }
+        }
+    }
+}
+
+fn u_same_single_path<S>(left: &URef<S>, right: &URef<S>) -> bool
+where
+    S: Eq,
+{
+    if Arc::ptr_eq(left, right) {
+        return true;
+    }
+    if left.paths != 1 || right.paths != 1 || left.max_depth != right.max_depth {
+        return false;
+    }
+
+    let mut left = USinglePathCursor::new(left);
+    let mut right = USinglePathCursor::new(right);
+    loop {
+        match (left.next(), right.next()) {
+            (Some(left), Some(right)) if left == right => {}
+            (None, None) => return true,
+            _ => return false,
+        }
+    }
+}
+
+fn u_common_single_path_prefix<S>(left: &URef<S>, right: &URef<S>) -> Vec<S>
+where
+    S: Clone + Eq,
+{
+    if left.paths != 1 || right.paths != 1 {
+        return Vec::new();
+    }
+    let mut left = USinglePathCursor::new(left);
+    let mut right = USinglePathCursor::new(right);
+    let mut prefix = Vec::new();
+    while let (Some(left), Some(right)) = (left.next(), right.next()) {
+        if left != right {
+            break;
+        }
+        prefix.push(left.clone());
+    }
+    prefix
+}
+
 pub(crate) fn u_push<S>(node: &URef<S>, value: S) -> URef<S>
 where
     S: Clone,
@@ -412,6 +508,65 @@ pub(crate) fn w_shared<S, W>(weight: Arc<W>, stacks: URef<S>) -> WRef<S, W> {
     })
 }
 
+pub(crate) fn w_segment<S, W>(values: Segment<S>, next: WRef<S, W>) -> WRef<S, W>
+where
+    S: Clone,
+{
+    if values.is_empty() {
+        return next;
+    }
+    if w_is_empty(&next) {
+        return w_empty();
+    }
+
+    if let WKind::Segment {
+        values: following,
+        next: floor,
+    } = &next.kind
+    {
+        let mut combined = Vec::with_capacity(values.len().saturating_add(following.len()));
+        combined.extend(values.iter().cloned());
+        combined.extend(following.iter().cloned());
+        return Arc::new(WNode {
+            paths: floor.paths,
+            max_depth: combined.len().saturating_add(floor.max_depth),
+            kind: WKind::Segment {
+                values: Segment::from_top_first(combined),
+                next: floor.clone(),
+            },
+        });
+    }
+
+    Arc::new(WNode {
+        paths: next.paths,
+        max_depth: values.len().saturating_add(next.max_depth),
+        kind: WKind::Segment { values, next },
+    })
+}
+
+fn w_after_prefix<S, W>(node: &WRef<S, W>, count: usize) -> WRef<S, W>
+where
+    S: Clone + Eq + Hash,
+    W: Weight,
+{
+    if count == 0 {
+        return node.clone();
+    }
+    match &node.kind {
+        WKind::Segment { values, next } => {
+            if count < values.len() {
+                w_segment(
+                    values.drop_front(count).expect("count is inside segment"),
+                    next.clone(),
+                )
+            } else {
+                w_after_prefix(next, count - values.len())
+            }
+        }
+        _ => w_popn(node, count),
+    }
+}
+
 pub(crate) fn w_branch<S, W>(
     mut empty: SmallVec<[Arc<W>; 1]>,
     mut children: WChildren<S, W>,
@@ -449,9 +604,19 @@ where
 fn w_expose_top<S, W>(node: &WRef<S, W>) -> WRef<S, W>
 where
     S: Clone + Eq + Hash,
+    W: Weight,
 {
     match &node.kind {
         WKind::Branch { .. } => node.clone(),
+        WKind::Segment { values, .. } => {
+            let top = values.first().expect("segments are non-empty").clone();
+            let mut children = WChildren::default();
+            children
+                .entry(top)
+                .or_default()
+                .push(w_after_prefix(node, 1));
+            w_branch(SmallVec::new(), children)
+        }
         WKind::Shared { weight, stacks } => match &stacks.kind {
             UKind::Segment { values, .. } => {
                 let top = values.first().expect("segments are non-empty").clone();
@@ -479,6 +644,17 @@ where
                 w_branch(weighted_empty, weighted_children)
             }
         },
+    }
+}
+
+fn w_top_segment<S, W>(node: &WRef<S, W>) -> Option<&Segment<S>> {
+    match &node.kind {
+        WKind::Segment { values, .. } => Some(values),
+        WKind::Shared { stacks, .. } => match &stacks.kind {
+            UKind::Segment { values, .. } => Some(values),
+            UKind::Branch { .. } => None,
+        },
+        WKind::Branch { .. } => None,
     }
 }
 
@@ -523,6 +699,29 @@ where
         return cached.clone();
     }
 
+    if matches!(left.kind, WKind::Segment { .. }) || matches!(right.kind, WKind::Segment { .. }) {
+        if let (Some(left_values), Some(right_values)) = (w_top_segment(left), w_top_segment(right))
+        {
+            let common = left_values
+                .iter()
+                .zip(right_values.iter())
+                .take_while(|(left, right)| left == right)
+                .count();
+            if common > 0 {
+                let prefix =
+                    Segment::from_top_first(left_values.iter().take(common).cloned().collect());
+                let left_rest = w_after_prefix(left, common);
+                let right_rest = w_after_prefix(right, common);
+                exposed_keepalive.push(left_rest.clone());
+                exposed_keepalive.push(right_rest.clone());
+                let floor = w_merge_memo(&left_rest, &right_rest, memo, exposed_keepalive);
+                let result = w_segment(prefix, floor);
+                memo.insert(key, result.clone());
+                return result;
+            }
+        }
+    }
+
     if let (
         WKind::Shared {
             weight: left_weight,
@@ -534,7 +733,7 @@ where
         },
     ) = (&left.kind, &right.kind)
     {
-        if Arc::ptr_eq(left_stacks, right_stacks) {
+        if Arc::ptr_eq(left_stacks, right_stacks) || u_same_single_path(left_stacks, right_stacks) {
             let weight = if Arc::ptr_eq(left_weight, right_weight)
                 || left_weight.as_ref() == right_weight.as_ref()
             {
@@ -545,6 +744,20 @@ where
             let result = w_shared(weight, left_stacks.clone());
             memo.insert(key, result.clone());
             return result;
+        }
+        if left_stacks.paths == 1 && right_stacks.paths == 1 {
+            let prefix = u_common_single_path_prefix(left_stacks, right_stacks);
+            if !prefix.is_empty() {
+                let count = prefix.len();
+                let left_rest = w_shared(left_weight.clone(), u_popn(left_stacks, count));
+                let right_rest = w_shared(right_weight.clone(), u_popn(right_stacks, count));
+                exposed_keepalive.push(left_rest.clone());
+                exposed_keepalive.push(right_rest.clone());
+                let floor = w_merge_memo(&left_rest, &right_rest, memo, exposed_keepalive);
+                let result = w_segment(Segment::from_top_first(prefix), floor);
+                memo.insert(key, result.clone());
+                return result;
+            }
         }
         if Arc::ptr_eq(left_weight, right_weight) || left_weight.as_ref() == right_weight.as_ref() {
             let result = w_shared(left_weight.clone(), u_merge(left_stacks, right_stacks));
@@ -656,10 +869,8 @@ where
     }
     match &node.kind {
         WKind::Shared { weight, stacks } => w_shared(weight.clone(), u_push(stacks, value)),
-        WKind::Branch { .. } => {
-            let mut children = WChildren::default();
-            children.entry(value).or_default().push(node.clone());
-            w_branch(SmallVec::new(), children)
+        WKind::Branch { .. } | WKind::Segment { .. } => {
+            w_segment(Segment::one(value), node.clone())
         }
     }
 }
@@ -671,6 +882,7 @@ where
 {
     match &node.kind {
         WKind::Shared { weight, stacks } => w_shared(weight.clone(), u_pop(stacks)),
+        WKind::Segment { .. } => w_after_prefix(node, 1),
         WKind::Branch { children, .. } => {
             w_merge_all(children.values().flatten().cloned().collect::<Vec<_>>())
         }
@@ -687,6 +899,7 @@ where
     }
     match &node.kind {
         WKind::Shared { weight, stacks } => w_shared(weight.clone(), u_popn(stacks, count)),
+        WKind::Segment { .. } => w_after_prefix(node, count),
         WKind::Branch { children, .. } => w_merge_all(
             children
                 .values()
@@ -703,6 +916,7 @@ where
 {
     match &node.kind {
         WKind::Shared { stacks, .. } => u_tops(stacks),
+        WKind::Segment { values, .. } => values.first().cloned().into_iter().collect(),
         WKind::Branch { children, .. } => children.keys().cloned().collect(),
     }
 }
@@ -713,6 +927,7 @@ where
 {
     match &node.kind {
         WKind::Shared { stacks, .. } => u_single_exclusive_top(stacks),
+        WKind::Segment { values, .. } => values.first().cloned(),
         WKind::Branch { empty, children } => {
             if !empty.is_empty() || children.len() != 1 {
                 return None;
@@ -725,6 +940,7 @@ where
 pub(crate) fn w_has_empty<S, W>(node: &WRef<S, W>) -> bool {
     match &node.kind {
         WKind::Shared { stacks, .. } => u_has_empty(stacks),
+        WKind::Segment { .. } => false,
         WKind::Branch { empty, .. } => !empty.is_empty(),
     }
 }
@@ -735,6 +951,13 @@ where
 {
     match &node.kind {
         WKind::Shared { weight, stacks } => w_shared(weight.clone(), u_retain_top(stacks, top)),
+        WKind::Segment { values, .. } => {
+            if values.first() == Some(top) {
+                node.clone()
+            } else {
+                w_empty()
+            }
+        }
         WKind::Branch { children, .. } => {
             let mut kept = WChildren::default();
             if let Some(values) = children.get(top) {
@@ -752,6 +975,13 @@ where
 {
     match &node.kind {
         WKind::Shared { weight, stacks } => w_shared(weight.clone(), u_pop_top(stacks, top)),
+        WKind::Segment { values, .. } => {
+            if values.first() == Some(top) {
+                w_after_prefix(node, 1)
+            } else {
+                w_empty()
+            }
+        }
         WKind::Branch { children, .. } => children
             .get(top)
             .map_or_else(w_empty, |values| w_merge_all(values.iter().cloned())),
@@ -764,6 +994,7 @@ where
 {
     match &node.kind {
         WKind::Shared { weight, stacks } => w_shared(weight.clone(), u_retain_empty(stacks)),
+        WKind::Segment { .. } => w_empty(),
         WKind::Branch { empty, .. } => w_branch(empty.clone(), WChildren::default()),
     }
 }
@@ -781,6 +1012,7 @@ where
         }
         match &node.kind {
             WKind::Shared { weight, .. } => join_into(out, weight.as_ref()),
+            WKind::Segment { next, .. } => walk(next, seen, out),
             WKind::Branch { empty, children } => {
                 for weight in empty {
                     join_into(out, weight.as_ref());
@@ -812,6 +1044,7 @@ where
                 join_into(&mut out, weight.as_ref());
             }
         }
+        WKind::Segment { .. } => {}
         _ => {}
     }
     out
@@ -836,5 +1069,19 @@ mod tests {
         let merged = u_merge(&left, &right);
 
         assert!(Arc::ptr_eq(&merged, &left));
+    }
+
+    #[test]
+    fn separately_segmented_equal_single_paths_compare_equal() {
+        let end = u_end();
+        let left = u_segment(Segment::from_top_first(vec![3_u8, 2, 1]), end.clone());
+        let right = u_segment(
+            Segment::one(3_u8),
+            u_segment(Segment::from_top_first(vec![2_u8, 1]), end),
+        );
+        let different = u_segment(Segment::from_top_first(vec![3_u8, 9, 1]), u_end());
+
+        assert!(u_same_single_path(&left, &right));
+        assert!(!u_same_single_path(&left, &different));
     }
 }
