@@ -1,27 +1,51 @@
 mod support;
 
-use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use std::hint::black_box;
 use std::time::Duration;
-use support::{ExplicitSet, binary_stacks, homogeneous_stacks};
+use support::{
+    ExplicitSet, binary_stacks, homogeneous_stacks, structurally_build_binary_explicit_set,
+    structurally_build_binary_unweighted_gss,
+};
 use weighted_gss::Gss;
 
 fn unweighted(c: &mut Criterion) {
-    let mut construction = c.benchmark_group("unweighted/construction");
-    construction.measurement_time(Duration::from_secs(3));
+    let mut import = c.benchmark_group("unweighted/construction/from_explicit_stacks");
+    import.measurement_time(Duration::from_secs(3));
     for (label, stacks) in [
-        ("shared_floor_128", homogeneous_stacks(128, 32)),
-        ("binary_1024", binary_stacks(10)),
+        ("shared_bottom_128", homogeneous_stacks(128, 32)),
+        ("enumerated_binary_1024", binary_stacks(10)),
     ] {
-        construction.throughput(Throughput::Elements(stacks.len() as u64));
-        construction.bench_function(BenchmarkId::new("gss", label), |b| {
-            b.iter(|| Gss::from_stacks_with_weight(black_box(stacks.clone()), ()));
+        import.throughput(Throughput::Elements(stacks.len() as u64));
+        import.bench_function(BenchmarkId::new("gss", label), |b| {
+            b.iter_batched(
+                || stacks.clone(),
+                |stacks| Gss::from_stacks_with_weight(black_box(stacks), ()),
+                BatchSize::LargeInput,
+            );
         });
-        construction.bench_function(BenchmarkId::new("explicit_set", label), |b| {
-            b.iter(|| ExplicitSet::from_stacks(black_box(stacks.clone())));
+        import.bench_function(BenchmarkId::new("explicit_set", label), |b| {
+            b.iter_batched(
+                || stacks.clone(),
+                |stacks| ExplicitSet::from_stacks(black_box(stacks)),
+                BatchSize::LargeInput,
+            );
         });
     }
-    construction.finish();
+    import.finish();
+
+    let mut structural = c.benchmark_group("unweighted/construction/structural_binary_growth");
+    structural.measurement_time(Duration::from_secs(3));
+    structural.sample_size(30);
+    for levels in [4_usize, 8, 12, 16] {
+        structural.bench_function(BenchmarkId::new("gss", levels), |b| {
+            b.iter(|| black_box(structurally_build_binary_unweighted_gss(black_box(levels))));
+        });
+        structural.bench_function(BenchmarkId::new("explicit_set", levels), |b| {
+            b.iter(|| black_box(structurally_build_binary_explicit_set(black_box(levels))));
+        });
+    }
+    structural.finish();
 
     let mut operations = c.benchmark_group("unweighted/operations");
     operations.measurement_time(Duration::from_secs(3));
@@ -46,10 +70,25 @@ fn unweighted(c: &mut Criterion) {
             b.iter(|| black_box(gss.to_stacks(count).unwrap()));
         });
         operations.bench_function(BenchmarkId::new("materialize/explicit_set", count), |b| {
-            b.iter(|| black_box(explicit.snapshot()));
+            b.iter(|| black_box(explicit.snapshot()))
         });
     }
     operations.finish();
+
+    let mut binary_pop = c.benchmark_group("unweighted/structural_binary_pop");
+    binary_pop.measurement_time(Duration::from_secs(3));
+    binary_pop.sample_size(30);
+    for levels in [8_usize, 12, 16] {
+        let gss = structurally_build_binary_unweighted_gss(black_box(levels));
+        let explicit = structurally_build_binary_explicit_set(black_box(levels));
+        binary_pop.bench_function(BenchmarkId::new("gss", levels), |b| {
+            b.iter(|| black_box(gss.pop()));
+        });
+        binary_pop.bench_function(BenchmarkId::new("explicit_set", levels), |b| {
+            b.iter(|| black_box(explicit.popn(1)));
+        });
+    }
+    binary_pop.finish();
 
     let mut merge = c.benchmark_group("unweighted/merge");
     merge.measurement_time(Duration::from_secs(3));
