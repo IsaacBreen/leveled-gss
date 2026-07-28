@@ -26,4 +26,4 @@ mkdir -p "$out_dir"
 
 printf 'Benchmark metadata: %s\n' "$out_dir/environment.txt"
 set -o pipefail
-cargo bench "$@" 2>&1 | tee "$out_dir/output.txt"
+cargo bench --benches "$@" 2>&1 | tee "$out_dir/output.txt"

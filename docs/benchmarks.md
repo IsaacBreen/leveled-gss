@@ -83,7 +83,7 @@ cargo bench --bench operations
 cargo bench --bench operations -- operations/join_heavy_pop
 ```
 
-The repository helper records the commit, toolchain, operating system, CPU description, dirty state, and benchmark output under `target/benchmark-runs/`:
+The repository helper runs only the declared Criterion targets and records the commit, toolchain, operating system, CPU description, dirty state, and benchmark output under `target/benchmark-runs/`:
 
 ```bash
 ./scripts/run-benchmarks.sh
