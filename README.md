@@ -1,6 +1,7 @@
 # weighted-gss
 
 [![CI](https://github.com/IsaacBreen/weighted-gss/actions/workflows/ci.yml/badge.svg)](https://github.com/IsaacBreen/weighted-gss/actions/workflows/ci.yml)
+[![Fuzz](https://github.com/IsaacBreen/weighted-gss/actions/workflows/fuzz.yml/badge.svg)](https://github.com/IsaacBreen/weighted-gss/actions/workflows/fuzz.yml)
 
 A persistent weighted graph-structured stack.
 
@@ -10,17 +11,17 @@ The graph representation is private. The Rust API contains semantic stack operat
 
 ## Installation
 
-The latest registry release is version 0.2.0. The current `main` branch is preparing version 0.2.1 with the API described here.
+The latest release is version 0.2.1.
 
 ```toml
 [dependencies]
-weighted-gss = { git = "https://github.com/IsaacBreen/weighted-gss.git", branch = "main" }
+weighted-gss = "0.2.1"
 ```
 
 Python 3.8 or later:
 
 ```bash
-python -m pip install "git+https://github.com/IsaacBreen/weighted-gss@main"
+python -m pip install "weighted-gss==0.2.1"
 ```
 
 ## Rust
@@ -91,9 +92,20 @@ The core methods are:
 
 Neither operation exposes graph nodes, structural paths, or canonical stack-language IDs.
 
-## Validation and benchmarks
+## Validation and performance characteristics
 
 Correctness is checked against an explicit stack-to-weight map through deterministic tests, shrinkable property-based operation sequences, and an oracle-backed `cargo-fuzz` target. The benchmark suite compares the compact representation with an explicit map, an explicit unweighted stack set, and a benchmark-only `weight -> stack set` ablation.
+
+Representative Criterion medians from one clean Apple M1 Pro run are shown below. They describe these particular shapes and operations, not a machine-independent speed claim.
+
+| Workload | `WeightedGss` | Explicit map | What it shows |
+|---|---:|---:|---|
+| Persistent fork of a 512-stack value | 174 ns | 141 µs | Immutable structural sharing makes forks cheap |
+| Merge across a 20,000-symbol common top prefix | 8.25 µs | 22.6 µs | Compact prefix reuse can avoid copying long stacks |
+| Pop 1,024 alternatives that collapse to one stack | 113 µs | 42.6 µs | An explicit map remains faster for this join-heavy operation |
+| Construct 1,024 already-explicit weighted stacks | 3.54 ms | 60.5 µs | Bulk construction is not the graph representation's strength |
+
+The intended trade-off is therefore specific: `WeightedGss` pays construction and representation costs to support persistent evolution and structural sharing. It is not a universally faster replacement for an explicit stack map.
 
 ```bash
 cargo test --all-targets
@@ -101,7 +113,7 @@ cargo bench
 cargo +nightly fuzz run operation_sequences
 ```
 
-See [Correctness validation](docs/validation.md) and [Benchmarks](docs/benchmarks.md).
+See [Correctness validation](docs/validation.md), [Benchmarks](docs/benchmarks.md), and the [2026-07-28 validation record](https://github.com/IsaacBreen/weighted-gss/blob/main/docs/https://github.com/IsaacBreen/weighted-gss/blob/main/docs/validation/validation-and-benchmarks-2026-07-28.md).
 
 ## Python
 
@@ -129,10 +141,8 @@ assert stacks.pop_top(2).to_stacks() == [
 
 Python weights need not be hashable. Exceptions raised by `join()` are propagated normally. See the [Python API](docs/python.md).
 
-## Semantics and validation
+## Semantics
 
-The implementation is tested against an explicit stack-to-weight map under randomized sequences of construction, merge, push, pop, top selection, and branch selection. Rust 1.85 is the declared minimum version.
-
-See [Semantics and invariants](docs/semantics.md).
+Weights and stack operations have an extensional meaning independent of the private graph representation. Rust 1.85 is the declared minimum version. See [Semantics and invariants](docs/semantics.md).
 
 Licensed under either Apache-2.0 or MIT, at your option.

@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The project follows semantic versioning.
 
-## [0.2.1] - Unreleased
+## [0.2.1] - 2026-07-28
 
 - Remove the `engine` feature and `weighted_gss::engine` module.
 - Remove `StackLanguageInterner` and `StackLanguageId`; canonical fixpoint-key machinery is application-specific rather than part of the stack abstraction.
@@ -10,6 +10,11 @@ All notable changes to this project are documented here. The project follows sem
 - Replace representation-sensitive `PathLimitExceeded` with one opaque `StackLimitExceeded` shared by bounded visitation and materialisation.
 - Make `to_stacks(max_stacks)` bound distinct concrete output stacks rather than internal encoded paths.
 - Rename the Python `to_stacks` keyword from `max_paths` to `max_stacks`.
+- Add deterministic, property-based, and coverage-guided oracle validation against explicit stack-to-weight maps.
+- Add Criterion benchmarks against explicit-map, weight-partitioned, and unweighted-set baselines.
+- Share common stack floors during batched construction and reuse exactly equal independently constructed single paths during merge.
+- Add compact weighted segments for long common prefixes, eliminating deep weighted-stack overflow and making deep-prefix operations iterative.
+- Add scheduled and pull-request fuzzing plus expanded benchmark and validation documentation.
 
 ## [0.2.0] - 2026-07-27
 

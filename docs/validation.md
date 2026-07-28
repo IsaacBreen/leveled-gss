@@ -75,3 +75,7 @@ The `Fuzz` GitHub Actions workflow:
 ## Scope
 
 These layers validate the supported standalone abstraction. The historical GLRMask adapter and CFA corpus remain useful application-level stress evidence, but they are not the specification and are intentionally not required to test this repository.
+
+## Completed validation campaign
+
+The validation and benchmark work completed on 2026-07-28 is recorded in [Validation and benchmarks — 2026-07-28](https://github.com/IsaacBreen/weighted-gss/blob/main/docs/validation/validation-and-benchmarks-2026-07-28.md). The record identifies the tested revisions, environment, checks, selected measurements, defects found, and interpretation limits.
