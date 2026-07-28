@@ -43,12 +43,14 @@ The suite is divided into four Criterion targets.
 - one linear stack at several depths;
 - 128 stacks with a shared floor;
 - a binary language containing 1,024 concrete stacks;
-- one, two, eight, and 32 distinct weights over the same stack shape.
+- one, two, eight, and 32 distinct weights over the same stack shape;
+- two weighted stacks sharing top prefixes up to 20,000 symbols.
 
 ### `operations`
 
 - push and pop on linear stacks;
-- half-overlapping merges;
+- disjoint, half-overlapping, and completely overlapping merges;
+- independently constructed values with common top prefixes up to 20,000 symbols;
 - join-heavy pop, where many alternatives collapse to one stack;
 - `retain_top` over increasingly broad frontiers;
 - persistent forks from one immutable source.

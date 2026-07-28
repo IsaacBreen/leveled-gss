@@ -76,6 +76,35 @@ fn construction(c: &mut Criterion) {
         );
     }
     weights.finish();
+
+    let mut deep = c.benchmark_group("construction/deep_common_top_prefix");
+    deep.measurement_time(Duration::from_secs(3));
+    for depth in [256_usize, 4096, 20_000] {
+        let make_stack = |bottom: u16| {
+            let mut stack = Vec::with_capacity(depth);
+            stack.push(bottom);
+            stack.extend((1..depth).map(|value| value as u16));
+            stack
+        };
+        let entries = vec![(make_stack(0), Bits(1)), (make_stack(1), Bits(2))];
+        deep.throughput(Throughput::Elements((depth * entries.len()) as u64));
+        deep.bench_with_input(
+            BenchmarkId::new("weighted_gss", depth),
+            &entries,
+            |b, entries| b.iter(|| WeightedGss::from_stacks(black_box(entries.clone()))),
+        );
+        deep.bench_with_input(
+            BenchmarkId::new("explicit_map", depth),
+            &entries,
+            |b, entries| b.iter(|| Explicit::from_entries(black_box(entries.clone()))),
+        );
+        deep.bench_with_input(
+            BenchmarkId::new("weight_partitioned", depth),
+            &entries,
+            |b, entries| b.iter(|| WeightPartitioned::from_entries(black_box(entries.clone()))),
+        );
+    }
+    deep.finish();
 }
 
 criterion_group!(benches, construction);

@@ -3,7 +3,9 @@ mod support;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use std::hint::black_box;
 use std::time::Duration;
-use support::{Explicit, WeightPartitioned, overlapping_entries, weighted_gss, weighted_stacks};
+use support::{
+    Bits, Explicit, WeightPartitioned, overlapping_entries, weighted_gss, weighted_stacks,
+};
 
 fn operations(c: &mut Criterion) {
     let mut linear = c.benchmark_group("operations/linear");
@@ -52,28 +54,72 @@ fn operations(c: &mut Criterion) {
     let mut merge = c.benchmark_group("operations/merge");
     merge.measurement_time(Duration::from_secs(3));
     for count in [32_usize, 128, 512] {
-        let (left_entries, right_entries) = overlapping_entries(count, 32);
+        let (half_left, half_right) = overlapping_entries(count, 32);
+        let disjoint = weighted_stacks(count * 2, 32, 32);
+        let disjoint_left = disjoint[..count].to_vec();
+        let disjoint_right = disjoint[count..].to_vec();
+        let complete_left = weighted_stacks(count, 32, 32);
+        let complete_right = complete_left
+            .iter()
+            .cloned()
+            .map(|(stack, Bits(weight))| (stack, Bits(weight.rotate_left(7))))
+            .collect();
+
+        for (shape, left_entries, right_entries) in [
+            ("disjoint", disjoint_left, disjoint_right),
+            ("half_overlap", half_left, half_right),
+            ("complete_overlap", complete_left, complete_right),
+        ] {
+            let left_gss = weighted_gss(&left_entries);
+            let right_gss = weighted_gss(&right_entries);
+            let left_explicit = Explicit::from_entries(left_entries.clone());
+            let right_explicit = Explicit::from_entries(right_entries.clone());
+            let left_partitioned = WeightPartitioned::from_entries(left_entries);
+            let right_partitioned = WeightPartitioned::from_entries(right_entries);
+            let case = format!("{shape}_{count}");
+            merge.throughput(Throughput::Elements((count * 2) as u64));
+            merge.bench_function(BenchmarkId::new("weighted_gss", &case), |b| {
+                b.iter(|| black_box(left_gss.merge(&right_gss)));
+            });
+            merge.bench_function(BenchmarkId::new("explicit_map", &case), |b| {
+                b.iter(|| black_box(left_explicit.merge(&right_explicit)));
+            });
+            merge.bench_function(BenchmarkId::new("weight_partitioned", &case), |b| {
+                b.iter(|| black_box(left_partitioned.merge(&right_partitioned)));
+            });
+        }
+    }
+    merge.finish();
+
+    let mut deep_merge = c.benchmark_group("operations/merge_deep_common_top");
+    deep_merge.measurement_time(Duration::from_secs(3));
+    for depth in [256_usize, 4096, 20_000] {
+        let make_stack = |bottom: u16| {
+            let mut stack = Vec::with_capacity(depth);
+            stack.push(bottom);
+            stack.extend((1..depth).map(|value| value as u16));
+            stack
+        };
+        let left_entries = vec![(make_stack(0), Bits(1)), (make_stack(1), Bits(2))];
+        let right_entries = vec![(make_stack(2), Bits(4)), (make_stack(3), Bits(8))];
         let left_gss = weighted_gss(&left_entries);
         let right_gss = weighted_gss(&right_entries);
         let left_explicit = Explicit::from_entries(left_entries.clone());
         let right_explicit = Explicit::from_entries(right_entries.clone());
         let left_partitioned = WeightPartitioned::from_entries(left_entries);
         let right_partitioned = WeightPartitioned::from_entries(right_entries);
-        merge.throughput(Throughput::Elements((count * 2) as u64));
-        merge.bench_function(BenchmarkId::new("weighted_gss/half_overlap", count), |b| {
+        deep_merge.throughput(Throughput::Elements((depth * 4) as u64));
+        deep_merge.bench_function(BenchmarkId::new("weighted_gss", depth), |b| {
             b.iter(|| black_box(left_gss.merge(&right_gss)));
         });
-        merge.bench_function(BenchmarkId::new("explicit_map/half_overlap", count), |b| {
+        deep_merge.bench_function(BenchmarkId::new("explicit_map", depth), |b| {
             b.iter(|| black_box(left_explicit.merge(&right_explicit)));
         });
-        merge.bench_function(
-            BenchmarkId::new("weight_partitioned/half_overlap", count),
-            |b| {
-                b.iter(|| black_box(left_partitioned.merge(&right_partitioned)));
-            },
-        );
+        deep_merge.bench_function(BenchmarkId::new("weight_partitioned", depth), |b| {
+            b.iter(|| black_box(left_partitioned.merge(&right_partitioned)));
+        });
     }
-    merge.finish();
+    deep_merge.finish();
 
     let mut collapse = c.benchmark_group("operations/join_heavy_pop");
     collapse.measurement_time(Duration::from_secs(3));

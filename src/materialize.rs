@@ -54,6 +54,13 @@ where
         WKind::Shared { weight, stacks } => {
             walk_unweighted(stacks, prefix, &mut |path| emit(path, weight))
         }
+        WKind::Segment { values, next } => {
+            let old_len = prefix.len();
+            prefix.extend(values.iter().cloned());
+            let complete = walk_weighted(next, prefix, emit);
+            prefix.truncate(old_len);
+            complete
+        }
         WKind::Branch { empty, children } => {
             for weight in empty {
                 if !emit(prefix, weight) {

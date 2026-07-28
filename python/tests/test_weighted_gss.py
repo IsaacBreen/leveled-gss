@@ -197,6 +197,23 @@ class WeightedGSSTest(unittest.TestCase):
                 self.assertEqual(gss.is_empty(), not model)
                 self.assertEqual(gss.max_depth(), max(map(len, model), default=0))
 
+    def test_deep_weighted_common_top_prefix(self):
+        depth = 2_000
+        left = [0, *range(1, depth)]
+        right = [1, *range(1, depth)]
+        gss = WeightedGSS.from_stacks([(left, Bits(1)), (right, Bits(2))])
+
+        self.assertEqual(gss.max_depth(), depth)
+        self.assertEqual(gss.top(), depth - 1)
+        self.assertIn(
+            ("WKind", "Segment"),
+            {(node["enum"], node["variant"]) for node in gss._dump_structure()["nodes"]},
+        )
+        self.assertEqual(
+            canonical(gss.popn(depth - 1).to_stacks(2)),
+            {(0,): Bits(1), (1,): Bits(2)},
+        )
+
     def test_materialization_limit(self):
         gss = WeightedGSS.from_stack([], Bits(1))
         for level in range(12):
@@ -231,6 +248,7 @@ class WeightedGSSTest(unittest.TestCase):
         self.assertTrue(all(edge["from"] in node_ids for edge in dump["edges"]))
         self.assertTrue(all(edge["to"] in node_ids for edge in dump["edges"]))
         self.assertIn(("WKind", "Branch"), variants)
+        self.assertIn(("WKind", "Segment"), variants)
         self.assertIn(("WKind", "Shared"), variants)
         self.assertIn(("UKind", "Segment"), variants)
         self.assertTrue(dump["weights"])
@@ -248,6 +266,18 @@ class WeightedGSSTest(unittest.TestCase):
             sum(
                 edge["kind"] == "segment_next" and edge["to"] == terminal_id
                 for edge in dump["edges"]
+            ),
+            1,
+        )
+        unweighted_segment_ids = {
+            node["id"]
+            for node in dump["nodes"]
+            if node["enum"] == "UKind" and node["variant"] == "Segment"
+        }
+        self.assertGreaterEqual(
+            max(
+                sum(edge["to"] == node_id for edge in dump["edges"])
+                for node_id in unweighted_segment_ids
             ),
             3,
         )
@@ -274,6 +304,7 @@ class WeightedGSSTest(unittest.TestCase):
         self.assertTrue(all(edge["from"] in node_ids for edge in dump["edges"]))
         self.assertTrue(all(edge["to"] in node_ids for edge in dump["edges"]))
         self.assertIn(("WKind", "Branch"), variants)
+        self.assertIn(("WKind", "Segment"), variants)
         self.assertIn(("WKind", "Shared"), variants)
         self.assertIn(("UKind", "Segment"), variants)
         self.assertTrue(dump["weights"])
@@ -291,6 +322,18 @@ class WeightedGSSTest(unittest.TestCase):
             sum(
                 edge["kind"] == "segment_next" and edge["to"] == terminal_id
                 for edge in dump["edges"]
+            ),
+            1,
+        )
+        unweighted_segment_ids = {
+            node["id"]
+            for node in dump["nodes"]
+            if node["enum"] == "UKind" and node["variant"] == "Segment"
+        }
+        self.assertGreaterEqual(
+            max(
+                sum(edge["to"] == node_id for edge in dump["edges"])
+                for node_id in unweighted_segment_ids
             ),
             3,
         )

@@ -96,6 +96,7 @@ impl<'a, S, W> Iterator for WeightIter<'a, S, W> {
             }
             match &node.kind {
                 WKind::Shared { weight, .. } => return Some(weight.as_ref()),
+                WKind::Segment { next, .. } => self.nodes.push(next.as_ref()),
                 WKind::Branch { empty, children } => {
                     self.nodes
                         .extend(children.values().flatten().map(AsRef::as_ref));
@@ -142,6 +143,7 @@ fn visit_weights<'a, S, W>(node: &'a WRef<S, W>, visit: &mut impl FnMut(&'a W)) 
         }
         match &node.kind {
             WKind::Shared { weight, .. } => visit(weight.as_ref()),
+            WKind::Segment { next, .. } => walk(next, seen, visit),
             WKind::Branch { empty, children } => {
                 for weight in empty {
                     visit(weight.as_ref());
@@ -169,6 +171,7 @@ fn all_weights_satisfy<'a, S, W>(
         }
         match &node.kind {
             WKind::Shared { weight, .. } => predicate(weight.as_ref()),
+            WKind::Segment { next, .. } => walk(next, seen, predicate),
             WKind::Branch { empty, children } => {
                 empty.iter().all(|weight| predicate(weight.as_ref()))
                     && children
@@ -198,6 +201,10 @@ where
     let mapped = match &node.kind {
         WKind::Shared { weight, stacks } => transform(weight.as_ref())
             .map_or_else(w_empty, |weight| w_shared(Arc::new(weight), stacks.clone())),
+        WKind::Segment { values, next } => {
+            let next = map_node_weights(next, memo, transform);
+            w_segment(values.clone(), next)
+        }
         WKind::Branch { empty, children } => {
             let mapped_empty = empty
                 .iter()

@@ -92,6 +92,10 @@ where
                 single_unweighted_path(stacks, output)?;
                 return Some(weight.as_ref());
             }
+            WKind::Segment { values, next } => {
+                output.extend(values.iter().cloned());
+                node = next;
+            }
             WKind::Branch { empty, children } => {
                 if empty.len() == 1 && children.is_empty() {
                     return Some(empty[0].as_ref());
@@ -163,6 +167,20 @@ where
                     .iter()
                     .cloned()
                     .map(|stack| (stack, weight.as_ref().clone()))
+                    .collect(),
+            ))
+        }
+        WKind::Segment { values, next } => {
+            let suffixes = collect_weighted_stacks(next, limit, weighted_memo, unweighted_memo)?;
+            Some(Arc::new(
+                suffixes
+                    .iter()
+                    .map(|(suffix, weight)| {
+                        let mut stack = Vec::with_capacity(values.len() + suffix.len());
+                        stack.extend(values.iter().cloned());
+                        stack.extend(suffix.iter().cloned());
+                        (stack, weight.clone())
+                    })
                     .collect(),
             ))
         }
