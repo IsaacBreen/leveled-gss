@@ -6,3 +6,7 @@ __pycache__/
 *.py[cod]
 .venv/
 dist/
+
+# cargo-fuzz
+/fuzz/artifacts/
+/fuzz/target/

@@ -1,0 +1,45 @@
+name: Fuzz
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds to fuzz each target
+        required: false
+        default: "300"
+
+permissions:
+  contents: read
+
+jobs:
+  operation-sequences:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_FUZZ_VERSION: "0.13.2"
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup toolchain install nightly --profile minimal
+      - run: cargo install cargo-fuzz --version "${CARGO_FUZZ_VERSION}" --locked
+      - run: cargo +nightly fuzz build operation_sequences
+      - name: Run oracle-backed fuzz target
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            seconds="${{ inputs.seconds }}"
+          elif [[ "${{ github.event_name }}" == "schedule" ]]; then
+            seconds=300
+          else
+            seconds=20
+          fi
+          cargo +nightly fuzz run operation_sequences -- -max_total_time="${seconds}" -timeout=10 -max_len=512
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-artifacts-operation-sequences-${{ github.sha }}
+          path: fuzz/artifacts
+          if-no-files-found: ignore
