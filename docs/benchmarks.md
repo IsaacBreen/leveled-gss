@@ -116,3 +116,7 @@ Record at least:
 Do not use absolute timing gates on shared GitHub-hosted runners. CI compiles and smoke-executes the benchmark targets; regression decisions should use adjacent Criterion baselines on the same isolated machine.
 
 The historical full GLRMask/CFA timing bracket remains an integration benchmark outside this standalone suite. It answers whether the API can support one demanding parser application, not how the general data structure scales in isolation.
+
+## Recorded run
+
+A selected, reproducible report from the clean Apple M1 Pro run on 2026-07-28 is available in [Validation and benchmarks — 2026-07-28](https://github.com/IsaacBreen/weighted-gss/blob/main/docs/validation/validation-and-benchmarks-2026-07-28.md). Raw Criterion output remains a local run artifact rather than a committed performance oracle.
