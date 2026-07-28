@@ -2,7 +2,10 @@
 mod benchmark_support;
 
 use benchmark_support::{
-    Bits, Explicit, ExplicitSet, WeightPartitioned, homogeneous_stacks, weighted_gss,
+    Bits, Explicit, ExplicitSet, WeightPartitioned, homogeneous_stacks,
+    structurally_build_binary_explicit, structurally_build_binary_explicit_set,
+    structurally_build_binary_gss, structurally_build_binary_unweighted_gss,
+    structurally_build_two_weight_explicit, structurally_build_two_weight_gss, weighted_gss,
     weighted_stacks,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -69,4 +72,38 @@ fn unweighted_benchmark_baseline_matches_gss() {
         explicit.snapshot().into_iter().collect::<BTreeSet<_>>(),
         actual
     );
+}
+
+#[test]
+fn structural_binary_builders_follow_the_same_operation_trace() {
+    for levels in 0..=10 {
+        let gss = structurally_build_binary_gss(levels);
+        let explicit = structurally_build_binary_explicit(levels);
+        assert_eq!(
+            canonical(gss.to_stacks(1 << levels).unwrap()),
+            canonical(explicit.snapshot()),
+        );
+
+        let weighted_gss = structurally_build_two_weight_gss(levels);
+        let weighted_explicit = structurally_build_two_weight_explicit(levels);
+        assert_eq!(
+            canonical(weighted_gss.to_stacks(1 << levels).unwrap()),
+            canonical(weighted_explicit.snapshot()),
+        );
+    }
+}
+
+#[test]
+fn unweighted_structural_binary_builders_match() {
+    for levels in 0..=10 {
+        let gss = structurally_build_binary_unweighted_gss(levels);
+        let explicit = structurally_build_binary_explicit_set(levels);
+        let actual: BTreeSet<_> = gss
+            .to_stacks(1 << levels)
+            .unwrap()
+            .into_iter()
+            .map(|(stack, ())| stack)
+            .collect();
+        assert_eq!(actual, explicit.snapshot().into_iter().collect());
+    }
 }

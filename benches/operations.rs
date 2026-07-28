@@ -4,7 +4,8 @@ use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_m
 use std::hint::black_box;
 use std::time::Duration;
 use support::{
-    Bits, Explicit, WeightPartitioned, overlapping_entries, weighted_gss, weighted_stacks,
+    Bits, Explicit, WeightPartitioned, overlapping_entries, structurally_build_binary_explicit,
+    structurally_build_binary_gss, weighted_gss, weighted_stacks,
 };
 
 fn operations(c: &mut Criterion) {
@@ -121,7 +122,7 @@ fn operations(c: &mut Criterion) {
     }
     deep_merge.finish();
 
-    let mut collapse = c.benchmark_group("operations/join_heavy_pop");
+    let mut collapse = c.benchmark_group("operations/stress/wide_fanout_collapse_pop");
     collapse.measurement_time(Duration::from_secs(3));
     for count in [16_usize, 128, 1024] {
         let entries = weighted_stacks(count, 32, 32);
@@ -140,6 +141,21 @@ fn operations(c: &mut Criterion) {
         });
     }
     collapse.finish();
+
+    let mut binary_pop = c.benchmark_group("operations/structural_binary_pop");
+    binary_pop.measurement_time(Duration::from_secs(3));
+    binary_pop.sample_size(30);
+    for levels in [8_usize, 12, 16] {
+        let gss = structurally_build_binary_gss(levels);
+        let explicit = structurally_build_binary_explicit(levels);
+        binary_pop.bench_function(BenchmarkId::new("weighted_gss", levels), |b| {
+            b.iter(|| black_box(gss.pop()));
+        });
+        binary_pop.bench_function(BenchmarkId::new("explicit_map", levels), |b| {
+            b.iter(|| black_box(explicit.popn(1)));
+        });
+    }
+    binary_pop.finish();
 
     let mut select = c.benchmark_group("operations/retain_top");
     select.measurement_time(Duration::from_secs(3));

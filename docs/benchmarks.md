@@ -1,10 +1,20 @@
 # Benchmarks
 
-The benchmark suite is kept in this repository because it measures the standalone crate's public operations and protects its implementation against regressions. It does not expose graph internals or add benchmark-only hooks to the library API.
+The benchmark suite measures the standalone crate's public semantics. It does not inspect graph nodes or add benchmark-only library hooks.
+
+## Comparison rules
+
+A benchmark comparison must answer one specific question. The suite follows these rules:
+
+1. **Use the same public operation trace.** Structural-growth cases start from the same extensional value and apply the same pushes, merges, pops, and weight assignments to each representation.
+2. **Keep conversion separate from structural evolution.** `from_stacks` benchmarks intentionally begin with complete concrete vectors and are labelled `from_explicit_entries`; they measure import cost, not general scalability.
+3. **Exclude harness preparation.** Constructor inputs are cloned in Criterion setup batches, outside the timed routine. Criterion also drops constructed results outside the timed interval.
+4. **Compare equivalent output.** Owned-output cases produce complete concrete `(stack, weight)` values. Borrowed-visit cases perform the same orientation-sensitive checksum and enforce the same stack-count bound.
+5. **Verify benchmark helpers.** Integration tests compare each weighted and unweighted structural builder against the compact implementation after every complete trace.
+6. **Label stress cases as stress cases.** Broad fan-out collapse and other adversarial shapes remain valuable regression tests, but they are not presented as typical parser workloads.
+7. **Do not derive throughput from represented alternatives for compressed operations.** A constant-time operation over a compact language may represent exponentially many stacks; dividing by that denotation produces impressive but misleading rates.
 
 ## Baselines
-
-The suite uses three private baseline representations from `benches/support/mod.rs`.
 
 ### Explicit stack-to-weight map
 
@@ -12,9 +22,9 @@ The suite uses three private baseline representations from `benches/support/mod.
 FxHashMap<Vec<Symbol>, Weight>
 ```
 
-This directly implements the documented semantics. Every operation copies or transforms concrete stacks and joins weights on key collision. It is both the conceptual reference implementation and the primary performance baseline.
+This directly implements the documented finite-map semantics. It reserves capacity when input size is known. Merge clones the larger operand and inserts the smaller, joining weights on key collision. Push, pop, and selection transform complete concrete stacks.
 
-It is not presented as an alternative production library. Its purpose is to show where graph sharing pays for itself and where a simple explicit representation remains competitive.
+It is the primary semantic and performance baseline, not a deliberately slow straw man.
 
 ### Weight-partitioned stack sets
 
@@ -22,9 +32,7 @@ It is not presented as an alternative production library. Its purpose is to show
 FxHashMap<Weight, FxHashSet<Vec<Symbol>>>
 ```
 
-This is the `weight -> GSS` architectural ablation. The same concrete stack may occur in several weight buckets; materialisation joins those weights.
-
-The benchmark-only implementation requires hashable weights, unlike the public `WeightedGss` API. It measures the value and cost of sharing structure across distinct weights.
+This benchmark-only ablation asks what happens when sharing is allowed inside each weight class but not across weights. The same concrete stack may occur in several buckets, so materialisation must join coincident weights. It requires hashable weights, unlike the public API.
 
 ### Explicit unweighted stack set
 
@@ -32,91 +40,83 @@ The benchmark-only implementation requires hashable weights, unlike the public `
 FxHashSet<Vec<Symbol>>
 ```
 
-This is compared with `Gss<S> = WeightedGss<S, ()>`. It isolates the persistent graph representation from nontrivial weight handling.
+This is compared with `Gss<S> = WeightedGss<S, ()>`. It isolates persistent graph sharing from nontrivial weight handling.
 
 ## Workloads
 
-The suite is divided into four Criterion targets.
-
 ### `construction`
 
-- one linear stack at several depths;
-- 128 stacks with a shared floor;
-- a binary language containing 1,024 concrete stacks;
-- one, two, eight, and 32 distinct weights over the same stack shape;
-- two weighted stacks sharing top prefixes up to 20,000 symbols.
+`construction/from_owned_single_stack` measures taking ownership of one complete stack at several depths.
+
+`construction/from_explicit_entries` measures conversion from already enumerated inputs:
+
+- 128 stacks sharing a bottom segment;
+- all 1,024 paths of a depth-10 binary language;
+- one, two, eight, and 32 weight classes;
+- two stacks sharing up to 20,000 top symbols.
+
+These are valid import benchmarks but are deliberately not used as the primary scaling evidence.
+
+`construction/structural_binary_growth` starts from an empty stack language and performs the same repeated public trace on both implementations:
+
+```text
+value = merge(push(value, left_symbol), push(value, right_symbol))
+```
+
+After `d` rounds the value denotes `2^d` stacks. The suite measures both one homogeneous weight and two stable weight classes at depths 4, 8, 12, and 16.
 
 ### `operations`
 
-- push and pop on linear stacks;
+- push and pop on one linear stack at several depths;
 - disjoint, half-overlapping, and completely overlapping merges;
-- independently constructed values with common top prefixes up to 20,000 symbols;
-- join-heavy pop, where many alternatives collapse to one stack;
+- independently constructed values with common top segments up to 20,000 symbols;
+- `structural_binary_pop`, operating on values built through the structural trace;
 - `retain_top` over increasingly broad frontiers;
-- persistent forks from one immutable source.
+- persistent forks from one immutable source;
+- `stress/wide_fanout_collapse_pop`, where many independently weighted top branches collapse simultaneously.
 
 ### `materialization`
 
-- `to_stacks`;
-- `for_each_stack_top_first`;
-- explicit-map snapshots;
-- weight-partitioned canonicalisation;
-- early rejection when a concrete-stack bound is too small.
+- `owned_output`: complete concrete outputs from `to_stacks`, explicit-map snapshots, and weight-partitioned materialisation;
+- `borrowed_visit`: bounded visits with equivalent top-first checksumming work;
+- `limit_rejection`: failure before callbacks when the distinct-stack limit is too small.
 
-Materialisation is kept separate because its cost is inherently proportional to concrete output.
+Materialisation is inherently proportional to concrete output. It is kept separate from compact graph operations.
 
 ### `unweighted`
 
-- construction, push, pop, merge, and materialisation;
-- `Gss<S>` against an explicit stack set.
+The unweighted target mirrors flat import, structural binary growth, push, pop, materialisation, structural pop, and merge against an explicit stack set.
 
 ## Running benchmarks
 
-Run everything:
+Run everything and record environment metadata:
 
 ```bash
-cargo bench
+./scripts/run-benchmarks.sh -- --noplot
 ```
 
-Run one target or one group:
+Run one target or group:
 
 ```bash
-cargo bench --bench operations
-cargo bench --bench operations -- operations/join_heavy_pop
+cargo bench --bench construction -- structural_binary_growth
+cargo bench --bench operations -- structural_binary_pop
+cargo bench --bench operations -- stress/wide_fanout_collapse_pop
 ```
 
-The repository helper runs only the declared Criterion targets and records the commit, toolchain, operating system, CPU description, dirty state, and benchmark output under `target/benchmark-runs/`:
-
-```bash
-./scripts/run-benchmarks.sh
-./scripts/run-benchmarks.sh --bench operations -- operations/join_heavy_pop
-```
-
-Criterion baselines can compare a candidate against an earlier run on the same machine:
+Criterion baselines can compare adjacent commits on the same machine:
 
 ```bash
 cargo bench -- --save-baseline main
-# switch commits or branches without changing the machine configuration
+# switch commits without changing machine configuration
 cargo bench -- --baseline main
 ```
 
 ## Interpreting results
 
-A useful result answers a specific question about a shape and operation. There is no single “GSS speed” number.
+There is no single “GSS speed” number. Record at least the commit, dirty state, toolchain, CPU, operating system, competing load, exact workload, input shape, and whether construction or materialisation is included.
 
-Record at least:
+Do not use absolute timing gates on shared GitHub-hosted runners. CI compiles and smoke-executes the benchmarks; performance decisions should use adjacent runs on the same isolated machine.
 
-- commit and dirty state;
-- Rust version;
-- CPU and operating system;
-- power mode and competing load;
-- benchmark target, shape, and size;
-- whether the result includes construction or materialisation.
+The historical GLRMask/CFA timing bracket remains application-level evidence. It answers whether the API supports one demanding parser workload, not how the standalone structure scales in isolation.
 
-Do not use absolute timing gates on shared GitHub-hosted runners. CI compiles and smoke-executes the benchmark targets; regression decisions should use adjacent Criterion baselines on the same isolated machine.
-
-The historical full GLRMask/CFA timing bracket remains an integration benchmark outside this standalone suite. It answers whether the API can support one demanding parser application, not how the general data structure scales in isolation.
-
-## Recorded run
-
-A selected, reproducible report from the clean Apple M1 Pro run on 2026-07-28 is available in [Validation and benchmarks — 2026-07-28](https://github.com/IsaacBreen/weighted-gss/blob/main/docs/validation/validation-and-benchmarks-2026-07-28.md). Raw Criterion output remains a local run artifact rather than a committed performance oracle.
+See [Benchmark methodology audit — 2026-07-28](validation/benchmark-audit-2026-07-28.md) for the redesign rationale and a clean recorded run.

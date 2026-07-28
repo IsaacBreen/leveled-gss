@@ -1,11 +1,9 @@
 use crate::Weight;
 use crate::gss::WeightedGss;
 use crate::nodes::*;
-use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 use std::fmt;
 use std::hash::Hash;
-use std::sync::Arc;
 
 /// Error returned when a bounded operation would materialise too many stacks.
 ///
@@ -42,8 +40,20 @@ where
     S: Clone + Eq + Hash,
     W: Weight,
 {
-    let stacks = collect_stacks_top_first(gss, max_stacks)?;
-    for (stack, weight) in &stacks {
+    if gss.root.paths == 1 {
+        let mut stack = SmallVec::<[S; 16]>::new();
+        if let Some(weight) = single_weighted_path(&gss.root, &mut stack) {
+            if max_stacks == 0 {
+                return Err(StackLimitExceeded::new());
+            }
+            visit(&stack, weight);
+            return Ok(());
+        }
+    }
+
+    let mut stacks = crate::materialize::materialize_stacks(&gss.root, max_stacks)?;
+    for (stack, weight) in &mut stacks {
+        stack.reverse();
         visit(stack, weight);
     }
     Ok(())
@@ -67,16 +77,11 @@ where
         }
     }
 
-    let mut weighted_memo = FxHashMap::default();
-    let mut unweighted_memo = FxHashMap::default();
-    let stacks = collect_weighted_stacks(
-        &gss.root,
-        max_stacks,
-        &mut weighted_memo,
-        &mut unweighted_memo,
-    )
-    .ok_or_else(StackLimitExceeded::new)?;
-    Ok(Arc::unwrap_or_clone(stacks))
+    let mut stacks = crate::materialize::materialize_stacks(&gss.root, max_stacks)?;
+    for (stack, _) in &mut stacks {
+        stack.reverse();
+    }
+    Ok(stacks)
 }
 
 fn single_weighted_path<'a, S, W>(
@@ -140,152 +145,4 @@ where
             }
         }
     }
-}
-
-type WeightedStacks<S, W> = Arc<Vec<(Vec<S>, W)>>;
-type UnweightedStacks<S> = Arc<Vec<Vec<S>>>;
-
-fn collect_weighted_stacks<S, W>(
-    node: &WRef<S, W>,
-    limit: usize,
-    weighted_memo: &mut FxHashMap<usize, Option<WeightedStacks<S, W>>>,
-    unweighted_memo: &mut FxHashMap<usize, Option<UnweightedStacks<S>>>,
-) -> Option<WeightedStacks<S, W>>
-where
-    S: Clone + Eq + Hash,
-    W: Weight,
-{
-    let id = w_id(node);
-    if let Some(cached) = weighted_memo.get(&id) {
-        return cached.clone();
-    }
-    let result = match &node.kind {
-        WKind::Shared { weight, stacks } => {
-            let stacks = collect_unweighted_stacks(stacks, limit, unweighted_memo)?;
-            Some(Arc::new(
-                stacks
-                    .iter()
-                    .cloned()
-                    .map(|stack| (stack, weight.as_ref().clone()))
-                    .collect(),
-            ))
-        }
-        WKind::Segment { values, next } => {
-            let suffixes = collect_weighted_stacks(next, limit, weighted_memo, unweighted_memo)?;
-            Some(Arc::new(
-                suffixes
-                    .iter()
-                    .map(|(suffix, weight)| {
-                        let mut stack = Vec::with_capacity(values.len() + suffix.len());
-                        stack.extend(values.iter().cloned());
-                        stack.extend(suffix.iter().cloned());
-                        (stack, weight.clone())
-                    })
-                    .collect(),
-            ))
-        }
-        WKind::Branch { empty, children } => {
-            let mut stacks = FxHashMap::<Vec<S>, W>::default();
-            for weight in empty {
-                stacks
-                    .entry(Vec::new())
-                    .and_modify(|current| *current = current.join(weight.as_ref()))
-                    .or_insert_with(|| weight.as_ref().clone());
-            }
-            if stacks.len() > limit {
-                None
-            } else {
-                let mut complete = true;
-                'children: for (top, alternatives) in children {
-                    for child in alternatives {
-                        let Some(child_stacks) =
-                            collect_weighted_stacks(child, limit, weighted_memo, unweighted_memo)
-                        else {
-                            complete = false;
-                            break 'children;
-                        };
-                        for (suffix, weight) in child_stacks.iter() {
-                            let mut stack = Vec::with_capacity(suffix.len() + 1);
-                            stack.push(top.clone());
-                            stack.extend(suffix.iter().cloned());
-                            stacks
-                                .entry(stack)
-                                .and_modify(|current| *current = current.join(weight))
-                                .or_insert_with(|| weight.clone());
-                            if stacks.len() > limit {
-                                complete = false;
-                                break 'children;
-                            }
-                        }
-                    }
-                }
-                complete.then(|| Arc::new(stacks.into_iter().collect()))
-            }
-        }
-    };
-    weighted_memo.insert(id, result.clone());
-    result
-}
-
-fn collect_unweighted_stacks<S>(
-    node: &URef<S>,
-    limit: usize,
-    memo: &mut FxHashMap<usize, Option<UnweightedStacks<S>>>,
-) -> Option<UnweightedStacks<S>>
-where
-    S: Clone + Eq + Hash,
-{
-    let id = u_id(node);
-    if let Some(cached) = memo.get(&id) {
-        return cached.clone();
-    }
-    let result = match &node.kind {
-        UKind::Branch { empty, children } => {
-            let mut stacks = FxHashSet::<Vec<S>>::default();
-            if *empty {
-                stacks.insert(Vec::new());
-            }
-            if stacks.len() > limit {
-                None
-            } else {
-                let mut complete = true;
-                'children: for (top, alternatives) in children {
-                    for child in alternatives {
-                        let Some(child_stacks) = collect_unweighted_stacks(child, limit, memo)
-                        else {
-                            complete = false;
-                            break 'children;
-                        };
-                        for suffix in child_stacks.iter() {
-                            let mut stack = Vec::with_capacity(suffix.len() + 1);
-                            stack.push(top.clone());
-                            stack.extend(suffix.iter().cloned());
-                            stacks.insert(stack);
-                            if stacks.len() > limit {
-                                complete = false;
-                                break 'children;
-                            }
-                        }
-                    }
-                }
-                complete.then(|| Arc::new(stacks.into_iter().collect()))
-            }
-        }
-        UKind::Segment { values, next } => {
-            let suffixes = collect_unweighted_stacks(next, limit, memo)?;
-            Some(Arc::new(
-                suffixes
-                    .iter()
-                    .map(|suffix| {
-                        let mut stack = Vec::with_capacity(values.len() + suffix.len());
-                        stack.extend(values.iter().cloned());
-                        stack.extend(suffix.iter().cloned());
-                        stack
-                    })
-                    .collect(),
-            ))
-        }
-    };
-    memo.insert(id, result.clone());
-    result
 }

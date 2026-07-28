@@ -2,6 +2,8 @@
 
 This record closes the standalone correctness-validation and benchmark work for `weighted-gss` 0.2.1.
 
+> **Historical record.** The correctness findings and implementation regressions in this report remain valid. Its benchmark table predates the methodology audit in [`benchmark-audit-2026-07-28.md`](benchmark-audit-2026-07-28.md). In particular, it mixed flat import from already enumerated stacks with structural operations in one headline table. Use the audit for current benchmark interpretation.
+
 ## Revisions and environment
 
 - implementation and benchmark commit: `4e1fdce8659a2a433db9292f3c206ac93bd29107`;

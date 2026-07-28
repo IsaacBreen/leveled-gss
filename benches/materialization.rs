@@ -3,55 +3,77 @@ mod support;
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use std::hint::black_box;
 use std::time::Duration;
-use support::{Explicit, WeightPartitioned, binary_stacks, weighted_gss, weighted_stacks};
+use support::{
+    Explicit, WeightPartitioned, binary_stacks, bottom_first_stack_checksum,
+    top_first_stack_checksum, weighted_gss, weighted_stacks,
+};
 use weighted_gss::for_each_stack_top_first;
 
 fn materialization(c: &mut Criterion) {
-    let mut group = c.benchmark_group("materialization/canonical_stacks");
-    group.measurement_time(Duration::from_secs(3));
-    for (label, entries) in [
+    let cases = [
         ("single_256", weighted_stacks(1, 256, 1)),
-        ("shared_floor_128", weighted_stacks(128, 32, 32)),
+        ("shared_bottom_128", weighted_stacks(128, 32, 32)),
         (
-            "binary_1024",
+            "enumerated_binary_1024",
             binary_stacks(10)
                 .into_iter()
                 .enumerate()
                 .map(|(index, stack)| (stack, support::Bits(1_u64 << (index % 32))))
                 .collect(),
         ),
-    ] {
+    ];
+
+    let mut canonical = c.benchmark_group("materialization/owned_output");
+    canonical.measurement_time(Duration::from_secs(3));
+    for (label, entries) in &cases {
         let count = entries.len();
-        let gss = weighted_gss(&entries);
+        let gss = weighted_gss(entries);
         let explicit = Explicit::from_entries(entries.clone());
-        let partitioned = WeightPartitioned::from_entries(entries);
-        group.throughput(Throughput::Elements(count as u64));
-        group.bench_function(BenchmarkId::new("weighted_gss/to_stacks", label), |b| {
+        let partitioned = WeightPartitioned::from_entries(entries.clone());
+        canonical.throughput(Throughput::Elements(count as u64));
+        canonical.bench_function(BenchmarkId::new("weighted_gss", label), |b| {
             b.iter(|| black_box(gss.to_stacks(count).unwrap()));
         });
-        group.bench_function(BenchmarkId::new("weighted_gss/visitor", label), |b| {
+        canonical.bench_function(BenchmarkId::new("explicit_map", label), |b| {
+            b.iter(|| black_box(explicit.snapshot()));
+        });
+        canonical.bench_function(BenchmarkId::new("weight_partitioned", label), |b| {
+            b.iter(|| black_box(partitioned.materialize()));
+        });
+    }
+    canonical.finish();
+
+    let mut borrowed = c.benchmark_group("materialization/borrowed_visit");
+    borrowed.measurement_time(Duration::from_secs(3));
+    for (label, entries) in &cases {
+        let count = entries.len();
+        let gss = weighted_gss(entries);
+        let explicit = Explicit::from_entries(entries.clone());
+        borrowed.throughput(Throughput::Elements(count as u64));
+        borrowed.bench_function(BenchmarkId::new("weighted_gss", label), |b| {
             b.iter(|| {
                 let mut checksum = 0_u64;
                 for_each_stack_top_first(&gss, count, |stack, weight| {
-                    checksum = checksum
-                        .wrapping_add(stack.len() as u64)
-                        .wrapping_add(weight.0);
+                    checksum = checksum.wrapping_add(top_first_stack_checksum(stack, *weight));
                 })
                 .unwrap();
                 black_box(checksum)
             });
         });
-        group.bench_function(BenchmarkId::new("explicit_map/snapshot", label), |b| {
-            b.iter(|| black_box(explicit.snapshot()));
+        borrowed.bench_function(BenchmarkId::new("explicit_map", label), |b| {
+            b.iter(|| {
+                let mut checksum = 0_u64;
+                explicit
+                    .visit_bounded(count, |stack, weight| {
+                        checksum =
+                            checksum.wrapping_add(bottom_first_stack_checksum(stack, weight));
+                    })
+                    .unwrap();
+                black_box(checksum)
+            });
         });
-        group.bench_function(
-            BenchmarkId::new("weight_partitioned/materialize", label),
-            |b| {
-                b.iter(|| black_box(partitioned.materialize()));
-            },
-        );
     }
-    group.finish();
+    borrowed.finish();
 
     let mut limits = c.benchmark_group("materialization/limit_rejection");
     limits.measurement_time(Duration::from_secs(3));

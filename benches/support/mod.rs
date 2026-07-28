@@ -4,7 +4,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::hash::Hash;
 use weighted_gss::{Weight, WeightedGss};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Bits(pub u64);
 
 pub type Entries = Vec<(Vec<u16>, Bits)>;
@@ -23,23 +23,33 @@ pub struct Explicit {
 
 impl Explicit {
     pub fn from_entries(entries: impl IntoIterator<Item = (Vec<u16>, Bits)>) -> Self {
-        let mut out = Self::default();
+        let entries = entries.into_iter();
+        let mut stacks: FxHashMap<Vec<u16>, Bits> = FxHashMap::default();
+        stacks.reserve(entries.size_hint().0);
         for (stack, weight) in entries {
-            out.stacks
+            stacks
                 .entry(stack)
                 .and_modify(|current| *current = current.join(&weight))
                 .or_insert(weight);
         }
-        out
+        Self { stacks }
     }
 
     pub fn merge(&self, other: &Self) -> Self {
-        Self::from_entries(
-            self.stacks
-                .iter()
-                .chain(&other.stacks)
-                .map(|(stack, weight)| (stack.clone(), *weight)),
-        )
+        let (base, added) = if self.stacks.len() >= other.stacks.len() {
+            (&self.stacks, &other.stacks)
+        } else {
+            (&other.stacks, &self.stacks)
+        };
+        let mut stacks = base.clone();
+        stacks.reserve(added.len());
+        for (stack, weight) in added {
+            stacks
+                .entry(stack.clone())
+                .and_modify(|current| *current = current.join(weight))
+                .or_insert(*weight);
+        }
+        Self { stacks }
     }
 
     pub fn push(&self, value: u16) -> Self {
@@ -66,11 +76,33 @@ impl Explicit {
         )
     }
 
+    pub fn map_weights(&self, mut map: impl FnMut(Bits) -> Bits) -> Self {
+        Self::from_entries(
+            self.stacks
+                .iter()
+                .map(|(stack, weight)| (stack.clone(), map(*weight))),
+        )
+    }
+
     pub fn snapshot(&self) -> Entries {
         self.stacks
             .iter()
             .map(|(stack, weight)| (stack.clone(), *weight))
             .collect()
+    }
+
+    pub fn visit_bounded(
+        &self,
+        max_stacks: usize,
+        mut visit: impl FnMut(&[u16], Bits),
+    ) -> Result<(), ()> {
+        if self.stacks.len() > max_stacks {
+            return Err(());
+        }
+        for (stack, weight) in &self.stacks {
+            visit(stack, *weight);
+        }
+        Ok(())
     }
 
     pub fn len(&self) -> usize {
@@ -93,8 +125,15 @@ impl WeightPartitioned {
     }
 
     pub fn merge(&self, other: &Self) -> Self {
-        let mut out = self.clone();
-        for (weight, stacks) in &other.by_weight {
+        let self_len: usize = self.by_weight.values().map(FxHashSet::len).sum();
+        let other_len: usize = other.by_weight.values().map(FxHashSet::len).sum();
+        let (base, added) = if self_len >= other_len {
+            (self, other)
+        } else {
+            (other, self)
+        };
+        let mut out = base.clone();
+        for (weight, stacks) in &added.by_weight {
             out.by_weight
                 .entry(*weight)
                 .or_default()
@@ -185,9 +224,15 @@ impl ExplicitSet {
     }
 
     pub fn merge(&self, other: &Self) -> Self {
-        Self {
-            stacks: self.stacks.union(&other.stacks).cloned().collect(),
-        }
+        let (base, added) = if self.stacks.len() >= other.stacks.len() {
+            (&self.stacks, &other.stacks)
+        } else {
+            (&other.stacks, &self.stacks)
+        };
+        let mut stacks = base.clone();
+        stacks.reserve(added.len());
+        stacks.extend(added.iter().cloned());
+        Self { stacks }
     }
 
     pub fn push(&self, value: u16) -> Self {
@@ -252,6 +297,87 @@ pub fn binary_stacks(levels: usize) -> Vec<Vec<u16>> {
     stacks
 }
 
+pub fn structurally_build_binary_gss(levels: usize) -> WeightedGss<u16, Bits> {
+    let mut value = WeightedGss::from_stack(std::iter::empty(), Bits(1));
+    for level in 0..levels {
+        value = value
+            .push((level * 2) as u16)
+            .merge(&value.push((level * 2 + 1) as u16));
+    }
+    value
+}
+
+pub fn structurally_build_binary_explicit(levels: usize) -> Explicit {
+    let mut value = Explicit::from_entries([(Vec::new(), Bits(1))]);
+    for level in 0..levels {
+        value = value
+            .push((level * 2) as u16)
+            .merge(&value.push((level * 2 + 1) as u16));
+    }
+    value
+}
+
+pub fn structurally_build_two_weight_gss(levels: usize) -> WeightedGss<u16, Bits> {
+    if levels == 0 {
+        return WeightedGss::from_stack(std::iter::empty(), Bits(1));
+    }
+    let mut value =
+        WeightedGss::from_stack([0_u16], Bits(1)).merge(&WeightedGss::from_stack([1_u16], Bits(2)));
+    for level in 1..levels {
+        value = value
+            .push((level * 2) as u16)
+            .merge(&value.push((level * 2 + 1) as u16));
+    }
+    value
+}
+
+pub fn structurally_build_two_weight_explicit(levels: usize) -> Explicit {
+    if levels == 0 {
+        return Explicit::from_entries([(Vec::new(), Bits(1))]);
+    }
+    let mut value = Explicit::from_entries([(vec![0_u16], Bits(1)), (vec![1_u16], Bits(2))]);
+    for level in 1..levels {
+        value = value
+            .push((level * 2) as u16)
+            .merge(&value.push((level * 2 + 1) as u16));
+    }
+    value
+}
+
+pub fn structurally_build_binary_unweighted_gss(levels: usize) -> weighted_gss::Gss<u16> {
+    let mut value = weighted_gss::Gss::from_stack(std::iter::empty(), ());
+    for level in 0..levels {
+        value = value
+            .push((level * 2) as u16)
+            .merge(&value.push((level * 2 + 1) as u16));
+    }
+    value
+}
+
+pub fn structurally_build_binary_explicit_set(levels: usize) -> ExplicitSet {
+    let mut value = ExplicitSet::from_stacks([Vec::new()]);
+    for level in 0..levels {
+        value = value
+            .push((level * 2) as u16)
+            .merge(&value.push((level * 2 + 1) as u16));
+    }
+    value
+}
+
+pub fn top_first_stack_checksum(stack: &[u16], weight: Bits) -> u64 {
+    stack.iter().fold(
+        weight.0.wrapping_add(stack.len() as u64),
+        |checksum, symbol| checksum.wrapping_mul(131).wrapping_add(u64::from(*symbol)),
+    )
+}
+
+pub fn bottom_first_stack_checksum(stack: &[u16], weight: Bits) -> u64 {
+    stack.iter().rev().fold(
+        weight.0.wrapping_add(stack.len() as u64),
+        |checksum, symbol| checksum.wrapping_mul(131).wrapping_add(u64::from(*symbol)),
+    )
+}
+
 pub fn overlapping_entries(count: usize, depth: usize) -> (Entries, Entries) {
     let all = homogeneous_stacks(count + count / 2, depth);
     let left = all[..count]
@@ -264,11 +390,11 @@ pub fn overlapping_entries(count: usize, depth: usize) -> (Entries, Entries) {
         .iter()
         .cloned()
         .enumerate()
-        .map(|(index, stack)| (stack, Bits(1_u64 << ((index + 7) % 32))))
+        .map(|(index, stack)| (stack, Bits(1_u64 << ((index + 11) % 32))))
         .collect();
     (left, right)
 }
 
-pub fn weighted_gss(entries: &[(Vec<u16>, Bits)]) -> WeightedGss<u16, Bits> {
+pub fn weighted_gss(entries: &Entries) -> WeightedGss<u16, Bits> {
     WeightedGss::from_stacks(entries.iter().cloned())
 }
